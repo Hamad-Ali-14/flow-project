@@ -1714,7 +1714,8 @@ body.rtl .toast {
   margin-bottom: 16px;
 }
 
-.report-controls label {
+.report-controls label,
+.report-controls .report-field {
   display: flex;
   flex-direction: column;
   gap: 7px;
@@ -2316,13 +2317,13 @@ body.rtl .toast {
 }
 
 .chart svg #flow-chart-gradient stop:nth-child(2) {
-  stop-color: #ffad0a;
-  stop-opacity: 0.28;
+  stop-color: #236fe4;
+  stop-opacity: 0.16;
 }
 
 .chart svg #flow-chart-gradient stop:last-child {
-  stop-color: #ffb41f;
-  stop-opacity: 0.08;
+  stop-color: #236fe4;
+  stop-opacity: 0.02;
 }
 
 /* ============================================================
@@ -4057,7 +4058,8 @@ body.rtl .toast {
   color: #a9b8cc;
 }
 
-:root[data-theme="dark"] .report-controls label {
+:root[data-theme="dark"] .report-controls label,
+:root[data-theme="dark"] .report-controls .report-field {
   color: #aabbd0;
 }
 
@@ -5043,29 +5045,55 @@ body.rtl .toast {
   opacity: 0.6;
 }
 
-/* user-menu extra item style */
+/* user-menu extra item style
+   The popup is always a dark-navy surface (light AND dark theme), so item text/icons
+   must always be light for contrast — never inherit the page's dark --ink color. */
 .user-menu-item {
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
   padding: 9px 14px;
+  border-radius: 8px;
   font-size: 13px;
-  color: var(--ink, #15243b);
-  transition: background 0.15s;
+  font-weight: 500;
+  color: #f1f5f9; /* slate-100 */
+  transition: background 0.15s, color 0.15s;
   text-align: left;
 }
 
-.user-menu-item:hover {
-  background: var(--bg, #f7f9fc);
+.user-menu-item svg {
+  color: #cbd5e1; /* slate-300 */
+  flex: none;
 }
 
-[data-theme="dark"] .user-menu-item {
-  color: #e8edf5;
+.user-menu-item:hover,
+.user-menu-item:focus-visible {
+  background: rgba(30, 41, 59, 0.75); /* slate-800 */
+  color: #fff;
+  outline: none;
 }
 
-[data-theme="dark"] .user-menu-item:hover {
-  background: rgba(255, 255, 255, 0.05);
+.user-menu-item:hover svg,
+.user-menu-item:focus-visible svg {
+  color: #fff;
+}
+
+:root[data-theme="light"] .user-menu,
+:root[data-theme="dark"] .user-menu {
+  background: #102e57;
+  border-color: #2a5694;
+}
+
+:root[data-theme="light"] .user-menu-item,
+:root[data-theme="dark"] .user-menu-item {
+  color: #f1f5f9;
+}
+
+:root[data-theme="light"] .user-menu-item:hover,
+:root[data-theme="dark"] .user-menu-item:hover {
+  background: rgba(30, 41, 59, 0.75);
+  color: #fff;
 }
 
 /* ============================================================
@@ -8055,4 +8083,341 @@ html[lang="ur"],
 :root[data-theme="dark"] .th-sort:hover .sort-arrow,
 :root[data-theme="dark"] .th-sort.active .sort-arrow {
   color: #38bdf8;
+}
+
+/* ============================================================
+   OVERVIEW SALES CHART — dark dropdown + overflow-safe layout
+   ============================================================ */
+.chart-card .card-head {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
+
+.chart-card .card-head > div {
+  flex: 1 1 auto;
+}
+
+.chart-card .card-head .period-selector {
+  flex: none;
+}
+
+.chart-card > .chart-legend {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+.chart-head-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.chart-head-controls .chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 16px;
+  margin: 0;
+  min-width: 0;
+}
+
+.chart-head-controls .period-selector {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.chart-card .select select {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] .chart-card .period-selector .select {
+  background: #0c1a2c;
+  border: 1px solid #1e293b;
+  box-shadow: none;
+  color: #e2e8f0;
+  padding: 0 12px;
+}
+
+:root[data-theme="dark"] .chart-card .period-selector .select:hover {
+  border-color: #3a608b;
+  background: #102640;
+}
+
+:root[data-theme="dark"] .chart-card .period-selector .select select {
+  background: transparent;
+  color: #e2e8f0;
+  color-scheme: dark;
+  padding: 0;
+  font-weight: 700;
+}
+
+:root[data-theme="dark"] .chart-card .period-selector .select select option,
+:root[data-theme="dark"] .chart-card .period-selector .select select optgroup {
+  background-color: #0c1a2c;
+  color: #e2e8f0;
+  padding: 8px 12px;
+}
+
+:root[data-theme="dark"] .chart-card .period-selector .select select option:checked,
+:root[data-theme="dark"] .chart-card .period-selector .select select option:hover {
+  background-color: #1e3a5f;
+  color: #ffffff;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+:root[data-theme="dark"] .chart-card .period-selector .select svg {
+  color: #a9bdd8;
+}
+
+/* Chart: axes, gridlines and plot share one box */
+.chart-card .chart {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.chart-card .chart-area {
+  min-width: 0;
+}
+
+.chart-card .chart-area > svg {
+  width: 100%;
+  overflow: visible;
+}
+
+.chart-card .gridlines {
+  border-bottom: 1px solid #e4eaf2;
+}
+
+:root[data-theme="dark"] .chart-card .gridlines {
+  border-bottom-color: #263d5b;
+}
+
+.chart-card .y-labels {
+  position: relative;
+  padding: 0;
+  margin: 4px 0 26px;
+  width: 36px;
+  flex: none;
+}
+
+.chart-card .y-labels span {
+  position: absolute;
+  left: 0;
+  transform: translateY(-50%);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.chart-card .y-labels-right span {
+  left: auto;
+  right: 0;
+  color: #d99a00;
+}
+
+.chart-card .y-labels-right {
+  text-align: right;
+}
+
+.chart-card .x-labels {
+  display: block;
+  right: 0;
+}
+
+.chart-card .x-labels span {
+  position: absolute;
+  top: 50%;
+  margin-top: -6px;
+  line-height: 12px;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .chart-head-controls {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+/* Whole pill is clickable: select stretches over the full box */
+.chart-card .period-selector .select {
+  position: relative;
+  min-width: 120px;
+  cursor: pointer;
+}
+
+:root .chart-card .period-selector .select select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0 34px 0 12px;
+  cursor: pointer;
+}
+
+:root[data-theme="dark"] .chart-card .period-selector .select select {
+  padding: 0 34px 0 12px;
+}
+
+.chart-card .period-selector .select svg {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+/* ============================================================
+   PERIOD DROPDOWN (custom, theme-safe — no native popup)
+   ============================================================ */
+.period-dd {
+  position: relative;
+  flex: none;
+}
+
+.period-dd-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 132px;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid #c9d8eb;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--navy2, #1b3555);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background-color 0.18s ease;
+}
+
+.period-dd-btn:hover,
+.period-dd-btn[aria-expanded="true"] {
+  border-color: #7ca9e7;
+}
+
+.period-dd-btn:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+.period-dd-chev {
+  color: #6b84a3;
+  transition: transform 0.18s ease;
+}
+
+.period-dd-chev.open {
+  transform: rotate(180deg);
+}
+
+.period-dd-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  min-width: 100%;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid #c9d8eb;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 10px 24px #102a4a26;
+}
+
+.period-dd-item {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #1b3555;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.period-dd-item:hover {
+  background: #eef4ff;
+}
+
+.period-dd-item.active {
+  background: #dce9ff;
+  color: #174a9e;
+}
+
+:root[data-theme="dark"] .period-dd-btn {
+  border-color: #1e293b;
+  background: #0c1a2c;
+  color: #e2e8f0;
+}
+
+:root[data-theme="dark"] .period-dd-btn:hover,
+:root[data-theme="dark"] .period-dd-btn[aria-expanded="true"] {
+  border-color: #3a608b;
+  background: #102640;
+}
+
+:root[data-theme="dark"] .period-dd-chev {
+  color: #a9bdd8;
+}
+
+:root[data-theme="dark"] .period-dd-menu {
+  border-color: #1e293b;
+  background: #0c1a2c;
+  box-shadow: 0 12px 28px #00000066;
+}
+
+:root[data-theme="dark"] .period-dd-item {
+  color: #e2e8f0;
+}
+
+:root[data-theme="dark"] .period-dd-item:hover {
+  background: #15294a;
+}
+
+:root[data-theme="dark"] .period-dd-item.active {
+  background: #1e3a5f;
+  color: #fff;
+}
+
+.chart-card {
+  overflow: visible;
+}
+
+/* Block (full-width) variant used by form fields such as the Reports controls */
+.period-dd.block {
+  width: 100%;
+}
+
+.period-dd.block .period-dd-btn {
+  width: 100%;
+  height: 40px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.period-dd.block .period-dd-menu {
+  left: 0;
+  right: 0;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.report-config {
+  overflow: visible;
 }

@@ -5,7 +5,7 @@ import { formatKarachiDateTime } from '../../dateUtils';
 import { useLanguage } from '../../context/LanguageContext';
 import FuelPriceModal from './FuelPriceModal';
 
-// Owner/admin only: TanksPage renders this when permissions.manage_prices is true.
+// Owner/admin/manager: TanksPage renders this when permissions.manage_prices is true.
 export default function FuelPricesCard({ prices, api, onChanged, notify }) {
   const { t } = useLanguage();
   const [editing, setEditing] = useState(null);
@@ -22,7 +22,7 @@ export default function FuelPricesCard({ prices, api, onChanged, notify }) {
   return (
     <section className="card table-card price-card">
       <div className="card-head">
-        <div><h2>{t('fuel_prices') || 'Fuel prices'}</h2><p>Active price per litre. Sales are valued at the price active when a shift is closed. Visible to owner / admin only.</p></div>
+        <div><h2>{t('fuel_prices') || 'Fuel prices'}</h2><p>Active price per litre. Sales are valued at the price active when a shift is closed. Shared by owner, admin and managers: a change made by any of them updates for everyone.</p></div>
         <span className="calibration-chip"><CalendarClock size={15} /> {t('scheduled_changes_note') || 'Scheduled changes apply at 12:00 AM PKT'}</span>
       </div>
 

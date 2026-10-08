@@ -103,10 +103,12 @@ const mapPrices = raw => ({
 
 const mapPeriod = p => ({
   revenue: num(p.revenue) || 0, litres: num(p.litres) || 0, prevRevenue: num(p.prev_revenue) || 0, prevLitres: num(p.prev_litres) || 0,
+  ...(Array.isArray(p.hourly) ? { hourly: p.hourly.map(h => ({ time: h.time, revenue: num(h.revenue) || 0, litres: num(h.litres) || 0 })) } : {}),
 });
 const mapSales = raw => ({
   businessDate: raw.business_date,
   daily: mapPeriod(raw.daily), weekly: mapPeriod(raw.weekly), monthly: mapPeriod(raw.monthly),
+  ...(raw.last30 ? { last30: mapPeriod(raw.last30) } : {}),
   series: (raw.series || []).map(x => ({ date: x.date, revenue: num(x.revenue) || 0, litres: num(x.litres) || 0 })),
 });
 

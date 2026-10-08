@@ -150,6 +150,13 @@ export function get_other_income({ income = [], period = 'today', todayISO = get
     const twoWeeksAgo = new Date(now.getTime() - 14 * 86400000).toISOString().slice(0, 10);
     filtered = income.filter(i => i.date >= weekAgo && i.date <= todayISO);
     prevFiltered = income.filter(i => i.date >= twoWeeksAgo && i.date < weekAgo);
+  } else if (period === 'last30') {
+    // rolling 30 days ending today vs the 30 days before that
+    const from = new Date(now.getTime() - 29 * 86400000).toISOString().slice(0, 10);
+    const prevFrom = new Date(now.getTime() - 59 * 86400000).toISOString().slice(0, 10);
+    const prevTo = new Date(now.getTime() - 30 * 86400000).toISOString().slice(0, 10);
+    filtered = income.filter(i => i.date >= from && i.date <= todayISO);
+    prevFiltered = income.filter(i => i.date >= prevFrom && i.date <= prevTo);
   } else {
     // monthly
     const monthStart = `${todayISO.slice(0, 8)}01`;
@@ -204,6 +211,13 @@ export function get_expenses({ expenses = [], period = 'today', todayISO = getKa
     const twoWeeksAgo = new Date(now.getTime() - 14 * 86400000).toISOString().slice(0, 10);
     filtered = expenses.filter(e => e.date >= weekAgo && e.date <= todayISO);
     prevFiltered = expenses.filter(e => e.date >= twoWeeksAgo && e.date < weekAgo);
+  } else if (period === 'last30') {
+    // rolling 30 days ending today vs the 30 days before that
+    const from = new Date(now.getTime() - 29 * 86400000).toISOString().slice(0, 10);
+    const prevFrom = new Date(now.getTime() - 59 * 86400000).toISOString().slice(0, 10);
+    const prevTo = new Date(now.getTime() - 30 * 86400000).toISOString().slice(0, 10);
+    filtered = expenses.filter(e => e.date >= from && e.date <= todayISO);
+    prevFiltered = expenses.filter(e => e.date >= prevFrom && e.date <= prevTo);
   } else {
     // monthly
     const monthStart = `${todayISO.slice(0, 8)}01`;

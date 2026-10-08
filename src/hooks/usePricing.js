@@ -9,8 +9,9 @@ import { getKarachiTodayISO } from '../dateUtils';
 //   - a pending change has come due, or
 //   - the Karachi calendar day rolled over (12:00 AM PKT),
 // and if so asks the database to apply due prices, then refreshes prices, sales and tank data.
-// Prices and revenue are loaded only when the database says this user may see them (owner/admin).
+// Prices load for roles with manage_prices (owner/admin/manager); revenue only for owner/admin (view_sales).
 const CHECK_EVERY_MS = 10000;
+const PRICE_SYNC_MS = 8000;
 
 export function usePricing(api, session, perms, reloadOverview, viewerRole) {
   const [prices, setPrices] = useState(null);
@@ -34,6 +35,20 @@ export function usePricing(api, session, perms, reloadOverview, viewerRole) {
     if (!session) { setPrices(null); setSales(null); return; }
     reloadPricing();
   }, [session, reloadPricing]);
+
+  // Live sync: when Owner / Manager 1 / Manager 2 change a price, the others pick it up within
+  // a few seconds (prices only; skipped while the tab is hidden). Re-renders only on real change.
+  useEffect(() => {
+    if (!session || !canManage) return undefined;
+    const timer = window.setInterval(async () => {
+      if (document.hidden) return;
+      try {
+        const next = await api.getFuelPrices();
+        setPrices(prev => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+      } catch { /* try again on the next tick */ }
+    }, PRICE_SYNC_MS);
+    return () => window.clearInterval(timer);
+  }, [api, session, canManage]);
 
   // Everything that must refresh after a price change or a shift closing.
   const refreshAll = useCallback(async () => {

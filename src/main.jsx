@@ -40,6 +40,7 @@ import IncomePage from "./IncomePage";
 import TanksPage from "./components/tanks/TanksPage";
 import ShiftClosingModal from "./components/tanks/ShiftClosingModal";
 import OwnerKPIs from "./components/dashboard/OwnerKPIs";
+import Dropdown from "./components/common/Dropdown";
 import FlowAIAgent from "./components/dashboard/FlowAIAgent";
 import FuelForecast from "./components/dashboard/FuelForecast";
 import DeliveryOrderModal from "./components/dashboard/DeliveryOrderModal";
@@ -51,7 +52,7 @@ import { isSupabaseConfigured } from "./lib/supabaseClient";
 import { NotificationProvider, useNotifications } from "./hooks/useNotifications";
 import { useAvatarUrl } from "./hooks/useAvatar";
 import { LanguageProvider, useLanguage } from "./context/LanguageContext";
-import { pctChange, formatPct, buildChart } from "./utils/salesMetrics";
+import { pctChange, formatPct, buildChart, buildPeriodSeries } from "./utils/salesMetrics";
 import { formatPKR, formatLiters as formatLitres } from "./utils/formatters";
 import {
   KARACHI_TIME_ZONE,
@@ -150,13 +151,14 @@ function App() {
   });
   const [shiftReminder, setShiftReminder] = useState(null);
   const { unreadCount, addNotification } = useNotifications();
-  const headerAvatarUrl = useAvatarUrl();
 
   const { api, session, userName, overview } = useTanks();
   const { status, signOut } = useAuth();
   const userRole = overview?.viewer?.role || 'owner';
   const isAdminOrOwner = userRole === 'owner' || userRole === 'admin';
   const isManager = !isAdminOrOwner;
+  // Header avatar bound to the active logged-in user (same key as the sidebar profile card).
+  const headerAvatarUrl = useAvatarUrl(session?.email || userName, isAdminOrOwner);
 
   const allNavItems = [
     { id: "overview", label: t("overview", "Overview"), icon: LayoutDashboard },
@@ -1740,13 +1742,17 @@ function Modal({
   );
 }
 
+const PERIOD_OPTIONS = [
+  { value: "daily", label: "Daily" },
+  { value: "weekly", label: "Weekly" },
+  { value: "monthly", label: "Monthly" },
+];
+
 function SalesOverviewChart({ sales, canSeeSales, period, setPeriod }) {
-  const chart = buildChart(
-    canSeeSales && sales ? sales.series : [],
-    period === "daily" ? 7 : period === "weekly" ? 14 : 31,
-  );
-  const periodDays = { daily: 7, weekly: 14, monthly: 31 };
-  const rangeLabel = { daily: "Last 7 days", weekly: "Last 14 days", monthly: "Last 31 days" };
+  // Window follows the selected period exactly like the KPI cards (all values come from the database).
+  const win = canSeeSales && sales ? buildPeriodSeries(sales, period) : { rows: [], label: "" };
+  const chart = buildChart(win.rows, Math.max(win.rows.length, 1), { period: "custom" });
+  const isDateLabel = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d);
 
   return (
     <section className="card chart-card">
@@ -1757,32 +1763,23 @@ function SalesOverviewChart({ sales, canSeeSales, period, setPeriod }) {
             {canSeeSales
               ? chart.empty
                 ? "No fuel sales recorded yet — revenue appears after the first shift closing"
-                : `Fuel sales revenue (PKR) across the station — ${rangeLabel[period]}`
+                : `Fuel sales revenue (PKR) across the station — ${win.label}`
               : "Sales revenue is visible to owner / admin only"}
           </p>
         </div>
-        <label className="period-selector" style={{ marginTop: 0 }}>
-          <div className="select">
-            <select value={period} onChange={(e) => setPeriod(e.target.value)}>
-              <option value="daily">Daily</option>
-              <option value="weekly">Weekly</option>
-              <option value="monthly">Monthly</option>
-            </select>
-            <ChevronDown size={14} />
-          </div>
-        </label>
+        <Dropdown value={period} onChange={setPeriod} options={PERIOD_OPTIONS} ariaLabel="Sales overview period" />
       </div>
       <div className="chart-legend">
         <span><i className="dot blue" />Revenue</span>
-        <span><i className="dot amber" />Fuel volume</span>
+        <span><i className="dot amber" />Fuel volume (L)</span>
       </div>
       <div className="chart">
         <div className="y-labels">
-          {chart.ticks.map((t, i) => <span key={i}>{t}</span>)}
+          {chart.ticks.map((t, i) => <span key={i} style={{ top: `${i * 25}%` }}>{t}</span>)}
         </div>
         <div className="chart-area">
           <div className="gridlines" />
-          <svg viewBox="0 0 700 230" preserveAspectRatio="none" style={{ top: 4, height: "calc(100% - 28px)" }}>
+          <svg viewBox="0 0 700 230" preserveAspectRatio="none" style={{ top: 4, height: "calc(100% - 30px)" }}>
             <defs>
               <linearGradient id="flow-chart-gradient" x1="0" x2="0" y1="0" y2="1">
                 <stop offset="0" stopColor="#2d75df" stopOpacity=".35" />
@@ -1795,12 +1792,24 @@ function SalesOverviewChart({ sales, canSeeSales, period, setPeriod }) {
             {chart.litresPath && <path className="chart-line-litres" d={chart.litresPath} />}
           </svg>
           <div className="x-labels">
-            {chart.xLabels.map((d) => (
-              <span key={d}>
-                {formatKarachiDate(new Date(`${d}T12:00:00+05:00`), { year: undefined })}
-              </span>
-            ))}
+            {chart.xLabels.map((d, i) => {
+              const pos = chart.xLabelPos[i];
+              return (
+                <span
+                  key={d}
+                  style={{
+                    left: `${pos * 100}%`,
+                    transform: `translateX(${pos <= 0 ? "0" : pos >= 1 ? "-100%" : "-50%"})`,
+                  }}
+                >
+                  {isDateLabel(d) ? formatKarachiDate(new Date(`${d}T12:00:00+05:00`), { year: undefined }) : d}
+                </span>
+              );
+            })}
           </div>
+        </div>
+        <div className="y-labels y-labels-right">
+          {chart.ticksLit.map((t, i) => <span key={i} style={{ top: `${i * 25}%` }}>{t}</span>)}
         </div>
       </div>
     </section>

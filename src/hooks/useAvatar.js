@@ -1,22 +1,48 @@
 import { useEffect, useState } from "react";
 
-// Avatar stored in localStorage as a compressed base64 JPEG.
+// Avatars are stored per user in localStorage as a compressed base64 image.
+// Each account gets its own key (flow-user-avatar:<email>) so Owner and Managers never share a photo.
 // A custom DOM event keeps the header and sidebar avatar in sync without a context.
-const AVATAR_KEY = "flow-user-avatar";
+const AVATAR_KEY = "flow-user-avatar"; // legacy single-user key (pre per-user isolation)
 const AVATAR_EVENT = "flow-avatar-changed";
 
-export function getStoredAvatar() {
+function keyFor(userKey) {
+  const id = String(userKey || "").trim().toLowerCase();
+  return id ? AVATAR_KEY + ":" + id : null;
+}
+
+/**
+ * Read the avatar for one user. The old shared key held the Owner's photo, so it is
+ * only handed over (and migrated) when `claimLegacy` is true (Owner/Admin).
+ */
+export function getStoredAvatar(userKey, claimLegacy = false) {
+  const key = keyFor(userKey);
+  if (!key) return null;
   try {
-    return localStorage.getItem(AVATAR_KEY) || null;
+    const own = localStorage.getItem(key);
+    if (own) return own;
+    if (claimLegacy) {
+      const legacy = localStorage.getItem(AVATAR_KEY);
+      if (legacy) {
+        localStorage.setItem(key, legacy);
+        localStorage.removeItem(AVATAR_KEY);
+        return legacy;
+      }
+    }
+    return null;
   } catch {
     return null;
   }
 }
 
-export function setStoredAvatar(dataUrl) {
+export function setStoredAvatar(userKey, dataUrl) {
+  const key = keyFor(userKey);
+  if (!key) return;
   try {
-    if (dataUrl) localStorage.setItem(AVATAR_KEY, dataUrl);
-    else localStorage.removeItem(AVATAR_KEY);
+    if (dataUrl) localStorage.setItem(key, dataUrl);
+    else localStorage.removeItem(key);
+    // Removing must also clear the legacy shared photo so it can't resurface for the Owner.
+    if (!dataUrl) localStorage.removeItem(AVATAR_KEY);
     window.dispatchEvent(new Event(AVATAR_EVENT));
   } catch {
     /* storage full */
@@ -61,15 +87,14 @@ export function fileToAvatar(file) {
   });
 }
 
-/** React hook: returns current avatar URL and re-renders when it changes. */
-export function useAvatarUrl() {
-  const [url, setUrl] = useState(() => getStoredAvatar());
+/** React hook: returns the avatar URL of the given user and re-renders when it (or the user) changes. */
+export function useAvatarUrl(userKey, claimLegacy = false) {
+  const [url, setUrl] = useState(() => getStoredAvatar(userKey, claimLegacy));
   useEffect(() => {
-    const handler = () => setUrl(getStoredAvatar());
-    window.addEventListener(AVATAR_EVENT, handler);
-    return () => window.removeEventListener(AVATAR_EVENT, handler);
-  }, []);
+    const sync = () => setUrl(getStoredAvatar(userKey, claimLegacy));
+    sync(); // re-read immediately when the logged-in user changes
+    window.addEventListener(AVATAR_EVENT, sync);
+    return () => window.removeEventListener(AVATAR_EVENT, sync);
+  }, [userKey, claimLegacy]);
   return url;
 }
-
-

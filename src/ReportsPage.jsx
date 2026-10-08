@@ -27,6 +27,7 @@ import {
   defaultSelectedSections,
 } from './reportExport';
 import { downloadPdfReport } from './reportPdfExport';
+import Dropdown from './components/common/Dropdown';
 import { formatPKR, formatLiters } from './utils/formatters';
 import { formatKarachiDate } from './dateUtils';
 
@@ -186,32 +187,35 @@ export default function ReportsPage({ expenses, income, employees, today, notify
           </div>
 
           <div className="report-controls">
-            <label>
-              Report Preset
-              <select
+            <div className="report-field">
+              <span>Report Preset</span>
+              <Dropdown
+                block
+                ariaLabel="Report preset"
                 value={reportType}
-                onChange={(e) => {
-                  setReportType(e.target.value);
-                  setSections(presets[e.target.value] || defaultSelectedSections);
+                onChange={(v) => {
+                  setReportType(v);
+                  setSections(presets[v] || defaultSelectedSections);
                 }}
-              >
-                {Object.keys(presets).map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
-            </label>
+                options={Object.keys(presets).map((p) => ({ value: p, label: p }))}
+              />
+            </div>
 
-            <label>
-              Reporting Period
-              <select value={range} onChange={(e) => setRange(e.target.value)}>
-                <option value="today">Daily (Today)</option>
-                <option value="week">Weekly (Last 7 Days)</option>
-                <option value="month">Monthly (Current Month)</option>
-                <option value="custom">Custom Date Range</option>
-              </select>
-            </label>
+            <div className="report-field">
+              <span>Reporting Period</span>
+              <Dropdown
+                block
+                ariaLabel="Reporting period"
+                value={range}
+                onChange={setRange}
+                options={[
+                  { value: 'today', label: 'Daily (Today)' },
+                  { value: 'week', label: 'Weekly (Last 7 Days)' },
+                  { value: 'month', label: 'Monthly (Current Month)' },
+                  { value: 'custom', label: 'Custom Date Range' },
+                ]}
+              />
+            </div>
 
             {range === 'custom' && (
               <>

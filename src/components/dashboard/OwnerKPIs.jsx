@@ -126,16 +126,19 @@ export default function OwnerKPIs({
 
   // Calculate the 5 KPIs deterministically from actual application state
   const activeTanks = (tanks || []).filter(t => t.active !== false && t.is_active !== false && !t.is_disabled);
+  // "Monthly" = rolling last 30 days (matches the Sales overview graph); falls back to the
+  // calendar month if the backend has not been migrated to send `sales.last30` yet.
+  const kpiPeriod = period === 'monthly' && sales?.last30 ? 'last30' : period;
   const salesData = period === 'daily'
     ? get_today_sales({ sales, tanks: activeTanks })
-    : get_sales_by_period(period, { sales, tanks: activeTanks });
-  const volumeData = get_fuel_volume({ sales, tanks: activeTanks, period });
-  const incomePeriod = period === 'daily' ? 'today' : period;
+    : get_sales_by_period(kpiPeriod, { sales, tanks: activeTanks });
+  const volumeData = get_fuel_volume({ sales, tanks: activeTanks, period: kpiPeriod });
+  const incomePeriod = period === 'daily' ? 'today' : kpiPeriod;
   const incomeData = get_other_income({ income, period: incomePeriod });
   const expensesData = get_expenses({ expenses, period: incomePeriod });
   const profitData = get_net_profit({ sales, tanks: activeTanks, income, expenses, period: incomePeriod });
 
-  const periodLabel = period === 'daily' ? 'previous day' : period === 'weekly' ? 'previous week' : 'previous month';
+  const periodLabel = period === 'daily' ? 'previous day' : period === 'weekly' ? 'previous week' : kpiPeriod === 'last30' ? 'previous 30 days' : 'previous month';
   const salesContext = (period === 'daily' && salesData.revenue === 0)
     ? t('shift_in_progress', 'Shift in progress')
     : `vs. ${periodLabel}`;

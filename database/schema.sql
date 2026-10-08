@@ -557,7 +557,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
     SELECT 1 FROM public.profiles p
     WHERE p.id = auth.uid() AND p.active AND (
       p.role::text IN ('owner', 'admin')
-      OR (p.role::text = 'manager'    AND p_action IN ('view_tanks','receive_fuel','stock_adjustment','view_history','close_shift','update_dip','enter_readings'))
+      OR (p.role::text = 'manager'    AND p_action IN ('view_tanks','receive_fuel','stock_adjustment','view_history','close_shift','update_dip','enter_readings','manage_prices'))
       OR (p.role::text = 'supervisor' AND p_action IN ('view_tanks','close_shift','view_history','update_dip','enter_readings'))
       OR (p.role::text = 'attendant'  AND p_action IN ('view_tanks','enter_readings'))
     )
