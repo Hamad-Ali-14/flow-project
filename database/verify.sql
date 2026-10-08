@@ -18,7 +18,7 @@ DECLARE
   fn text;
 BEGIN
   -- 1. Tables -----------------------------------------------------------
-  FOREACH tbl IN ARRAY array['fuel_types','tanks','dispensing_machines','nozzles','profiles','shifts','shift_closings','meter_readings','fuel_transactions','dip_readings','expenses','other_income','employees','salary_payments','fuel_price_history','fuel_price_schedule'] LOOP
+  FOREACH tbl IN ARRAY array['fuel_types','tanks','dispensing_machines','nozzles','profiles','shifts','shift_closings','meter_readings','fuel_transactions','dip_readings','expenses','other_income','employees','salary_payments','attendance','fuel_price_history','fuel_price_schedule'] LOOP
     n := n + 1; ord := n; item := 'table public.' || tbl;
     IF to_regclass('public.' || tbl) IS NOT NULL THEN status := 'PASS'; detail := '';
     ELSE status := 'FAIL'; detail := 'Run database/schema.sql'; END IF;

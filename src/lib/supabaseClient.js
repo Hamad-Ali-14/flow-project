@@ -8,7 +8,7 @@ import { createClient } from '@supabase/supabase-js';
 // Env names: the documented ones come first; a few common alternatives are accepted so a
 // project that already uses them keeps working. Variable VALUES are never logged or shown,
 // only names.
-const env = import.meta.env;
+const env = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : (typeof process !== 'undefined' && process.env ? process.env : {});
 const URL_NAMES = ['VITE_SUPABASE_URL', 'VITE_SUPABASE_PROJECT_URL'];
 const KEY_NAMES = ['VITE_SUPABASE_ANON_KEY', 'VITE_SUPABASE_PUBLISHABLE_KEY', 'VITE_SUPABASE_KEY'];
 

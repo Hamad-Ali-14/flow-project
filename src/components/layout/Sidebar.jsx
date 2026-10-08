@@ -28,7 +28,7 @@ export default function Sidebar({ nav, page, onNavigate, open, onClose, isManage
           <span className="station-dot" />
           <div>
             <small>{t("active_station", "Active station")}</small>
-            <strong>{t("station_name", "FLOW - Gujranwala")}</strong>
+            <strong>{t("station_name", "BROTHERS FUEL STATION")}</strong>
           </div>
           <ChevronDown size={16} />
         </div>

@@ -3,6 +3,7 @@
 // JSON (snake_case -> camelCase, numeric strings -> numbers).
 import { inventoryError, toInventoryError } from './inventoryErrors';
 import { recoveryLink } from '../lib/supabaseClient';
+import { AttendanceError, buildAttendanceRow } from '../utils/attendancePayload';
 
 const toSession = s => {
   const meta = s.user.user_metadata || {};
@@ -111,6 +112,27 @@ const mapSales = raw => ({
   ...(raw.last30 ? { last30: mapPeriod(raw.last30) } : {}),
   series: (raw.series || []).map(x => ({ date: x.date, revenue: num(x.revenue) || 0, litres: num(x.litres) || 0 })),
 });
+
+// Turns a Supabase/Postgres error into a message that says what actually went wrong.
+function attendanceFailure(error, payload, action) {
+  if (error instanceof AttendanceError) {
+    console.error(`[attendance] ${action} rejected before sending:`, error.message, { payload });
+    return error;
+  }
+  const raw = String(error?.message || error || 'Unknown error');
+  const parts = [raw.startsWith('FLOW:') ? raw.slice(5) : raw];
+  if (error?.details && !raw.includes(error.details)) parts.push(error.details);
+  if (error?.hint) parts.push(`Hint: ${error.hint}`);
+  let message = parts.join(' - ');
+  if (error?.code === '42P01') message += ' (a required table is missing: run the payroll migrations in database/)';
+  if (error?.code === '42501') message += ' (permission denied by row-level security)';
+  if (error?.code === '22P02') message += ' (a value has the wrong format, e.g. an id that is not a uuid)';
+  if (/failed to fetch|networkerror|load failed/i.test(raw)) message = 'Network error: could not reach the database. Check your connection.';
+  console.error(`[attendance] ${action} failed`, {
+    code: error?.code, message: error?.message, details: error?.details, hint: error?.hint, status: error?.status, payload,
+  });
+  return new AttendanceError(message, { code: error?.code, details: error?.details, hint: error?.hint, payload });
+}
 
 export function createSupabaseInventory(supabase) {
   async function rpc(name, args, context) {
@@ -472,6 +494,262 @@ export function createSupabaseInventory(supabase) {
         'Active',
         `PKR ${Number(data.monthly_salary || 0).toLocaleString('en-PK')}`
       ];
+    },
+
+    async getStaffRoster() {
+      try {
+        const { data, error } = await supabase
+          .from('employees')
+          .select('id, full_name, designation, shift_id, monthly_salary, active, shifts(id, name)')
+          .order('full_name');
+        if (error) {
+          console.warn('[staffRoster] query failed:', error.message);
+          return [];
+        }
+        return (data || []).map(e => ({
+          id: e.id,
+          name: e.full_name,
+          designation: e.designation,
+          shiftId: e.shift_id,
+          shiftName: e.shifts?.name || 'Shift 1 - Day',
+          monthlySalary: Number(e.monthly_salary || 0),
+          active: Boolean(e.active),
+        }));
+      } catch (err) {
+        console.warn('[staffRoster] unexpected error:', err);
+        return [];
+      }
+    },
+
+    async getAttendance({ date, startDate, endDate, employeeId } = {}) {
+      try {
+        let query = supabase
+          .from('attendance')
+          .select(`
+            id, employee_id, date, shift_id, status, attendance_source,
+            check_in_time, check_out_time, notes, created_at, updated_at,
+            employees(id, full_name, designation, monthly_salary),
+            shifts(id, name)
+          `)
+          .order('date', { ascending: false });
+
+        if (date) query = query.eq('date', date);
+        if (startDate) query = query.gte('date', startDate);
+        if (endDate) query = query.lte('date', endDate);
+        if (employeeId) query = query.eq('employee_id', employeeId);
+
+        const { data, error } = await query;
+        if (error) {
+          console.warn('[attendance] query failed:', error.message);
+          return [];
+        }
+        return (data || []).map(r => ({
+          id: r.id,
+          employeeId: r.employee_id,
+          employeeName: r.employees?.full_name || 'Staff Member',
+          designation: r.employees?.designation || 'Staff',
+          date: r.date,
+          shiftId: r.shift_id,
+          shiftName: r.shifts?.name || 'Shift 1 - Day',
+          status: r.status,
+          attendanceSource: r.attendance_source || 'Manual',
+          checkInTime: r.check_in_time,
+          checkOutTime: r.check_out_time,
+          notes: r.notes || '',
+          updatedAt: r.updated_at,
+        }));
+      } catch (err) {
+        console.warn('[attendance] unexpected error:', err);
+        return [];
+      }
+    },
+
+    async markAttendance(record) {
+      let payload;
+      try {
+        payload = buildAttendanceRow(record);
+      } catch (err) {
+        throw attendanceFailure(err, record, 'markAttendance');
+      }
+      if (import.meta.env.DEV) console.debug('[attendance] markAttendance payload', payload);
+
+      const { data, error } = await supabase
+        .from('attendance')
+        .upsert(payload, { onConflict: 'employee_id,date' })
+        .select(`
+          id, employee_id, date, shift_id, status, attendance_source,
+          check_in_time, check_out_time, notes, updated_at,
+          employees(id, full_name, designation),
+          shifts(id, name)
+        `)
+        .single();
+
+      if (error) throw attendanceFailure(error, payload, 'markAttendance');
+      return {
+        id: data.id,
+        employeeId: data.employee_id,
+        employeeName: data.employees?.full_name || '',
+        designation: data.employees?.designation || '',
+        date: data.date,
+        shiftId: data.shift_id,
+        shiftName: data.shifts?.name || 'Shift 1 - Day',
+        status: data.status,
+        attendanceSource: data.attendance_source || 'Manual',
+        checkInTime: data.check_in_time,
+        checkOutTime: data.check_out_time,
+        notes: data.notes || '',
+        updatedAt: data.updated_at,
+      };
+    },
+
+    async bulkMarkAttendance(records = []) {
+      if (!records || !records.length) return [];
+      let rows;
+      try {
+        rows = records.map(buildAttendanceRow);
+        // One row per employee+date: a duplicate inside one upsert makes Postgres reject the whole batch.
+        const seen = new Set();
+        rows = rows.filter(r => { const k = `${r.employee_id}|${r.date}`; if (seen.has(k)) return false; seen.add(k); return true; });
+      } catch (err) {
+        throw attendanceFailure(err, records, 'bulkMarkAttendance');
+      }
+      if (import.meta.env.DEV) console.debug('[attendance] bulkMarkAttendance payload', rows);
+
+      const { data, error } = await supabase
+        .from('attendance')
+        .upsert(rows, { onConflict: 'employee_id,date' })
+        .select(`
+          id, employee_id, date, shift_id, status, attendance_source,
+          check_in_time, check_out_time, notes, updated_at,
+          employees(id, full_name, designation),
+          shifts(id, name)
+        `);
+
+      if (error) throw attendanceFailure(error, rows, 'bulkMarkAttendance');
+      return (data || []).map(d => ({
+        id: d.id,
+        employeeId: d.employee_id,
+        employeeName: d.employees?.full_name || '',
+        designation: d.employees?.designation || '',
+        date: d.date,
+        shiftId: d.shift_id,
+        shiftName: d.shifts?.name || 'Shift 1 - Day',
+        status: d.status,
+        attendanceSource: d.attendance_source || 'Manual',
+        notes: d.notes || '',
+      }));
+    },
+
+    async getAttendanceAuditLog({ attendanceId, employeeId } = {}) {
+      try {
+        let query = supabase
+          .from('attendance_audit_log')
+          .select('*, employees(full_name, designation)')
+          .order('created_at', { ascending: false });
+
+        if (attendanceId) query = query.eq('attendance_id', attendanceId);
+        if (employeeId) query = query.eq('employee_id', employeeId);
+
+        const { data, error } = await query;
+        if (error) {
+          console.warn('[attendanceAudit] query note:', error.message);
+          return [];
+        }
+        return (data || []).map(d => ({
+          id: d.id,
+          attendanceId: d.attendance_id,
+          employeeId: d.employee_id,
+          employeeName: d.employees?.full_name || d.changed_by_name || 'Staff Member',
+          date: d.attendance_date,
+          previousStatus: d.previous_status,
+          newStatus: d.new_status,
+          previousCheckIn: d.previous_check_in,
+          newCheckIn: d.new_check_in,
+          previousCheckOut: d.previous_check_out,
+          newCheckOut: d.new_check_out,
+          reason: d.reason,
+          changedBy: d.changed_by,
+          changedByName: d.changed_by_name || 'Station Staff',
+          createdAt: d.created_at,
+        }));
+      } catch (err) {
+        console.warn('[attendanceAudit] query failed:', err);
+        return [];
+      }
+    },
+
+    async correctAttendanceRecord({
+      attendanceId,
+      employeeId,
+      date,
+      previousStatus,
+      newStatus,
+      reason,
+      newCheckIn,
+      newCheckOut,
+      changedByName = 'Station Staff',
+    }) {
+      if (!reason || reason.trim().length < 3) {
+        throw new Error('A reason of at least 3 characters is required for attendance correction.');
+      }
+
+      // 1. Update the attendance record
+      const updatePayload = {
+        status: newStatus,
+        notes: reason.trim(),
+        updated_at: new Date().toISOString(),
+      };
+      if (newCheckIn !== undefined) updatePayload.check_in_time = newCheckIn || null;
+      if (newCheckOut !== undefined) updatePayload.check_out_time = newCheckOut || null;
+
+      const { data: updatedAtt, error: attError } = await supabase
+        .from('attendance')
+        .update(updatePayload)
+        .eq('id', attendanceId)
+        .select('*, employees(full_name, designation), shifts(name)')
+        .single();
+
+      if (attError) throw attError;
+
+      // 2. Insert explicit audit log row
+      const { data: auditRow, error: auditError } = await supabase
+        .from('attendance_audit_log')
+        .insert({
+          attendance_id: attendanceId,
+          employee_id: employeeId || updatedAtt.employee_id,
+          attendance_date: date || updatedAtt.date,
+          previous_status: previousStatus,
+          new_status: newStatus,
+          previous_check_in: updatedAtt.check_in_time,
+          new_check_in: newCheckIn || null,
+          previous_check_out: updatedAtt.check_out_time,
+          new_check_out: newCheckOut || null,
+          reason: reason.trim(),
+          changed_by_name: changedByName,
+        })
+        .select()
+        .single();
+
+      if (auditError) console.warn('[auditInsert] note:', auditError.message);
+
+      return {
+        record: {
+          id: updatedAtt.id,
+          employeeId: updatedAtt.employee_id,
+          employeeName: updatedAtt.employees?.full_name || '',
+          designation: updatedAtt.employees?.designation || '',
+          date: updatedAtt.date,
+          shiftId: updatedAtt.shift_id,
+          shiftName: updatedAtt.shifts?.name || 'Shift 1 - Day',
+          status: updatedAtt.status,
+          attendanceSource: updatedAtt.attendance_source || 'Manual',
+          checkInTime: updatedAtt.check_in_time,
+          checkOutTime: updatedAtt.check_out_time,
+          notes: updatedAtt.notes,
+          updatedAt: updatedAtt.updated_at,
+        },
+        auditEntry: auditRow,
+      };
     },
 
     async getShiftReconciliation() {

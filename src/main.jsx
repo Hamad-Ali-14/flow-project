@@ -32,8 +32,11 @@ import {
   Link2,
   Sparkles,
   LockKeyhole,
+  CalendarCheck,
 } from "lucide-react";
 import "./styles.css";
+import AttendancePage from "./components/attendance/AttendancePage";
+import PayrollPage from "./components/payroll/PayrollPage";
 import ReportsPage from "./ReportsPage";
 import SettingsPage from "./SettingsPage";
 import IncomePage from "./IncomePage";
@@ -72,6 +75,8 @@ const nav = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "shifts", label: "Shift closing", icon: ReceiptText, badge: "2" },
   { id: "station", label: "Tanks & nozzles", icon: Fuel },
+  { id: "attendance", label: "Attendance", icon: CalendarCheck },
+  { id: "payroll", label: "Payroll", icon: Banknote },
   { id: "expenses", label: "Expenses", icon: WalletCards },
   { id: "people", label: "Employees & salaries", icon: UsersRound },
   { id: "income", label: "Other income", icon: Banknote },
@@ -165,6 +170,7 @@ function App() {
     { id: "shifts", label: t("shift_closing", "Shift closing"), icon: ReceiptText, badge: "2" },
     { id: "station", label: t("tanks_nozzles", "Tanks & nozzles"), icon: Fuel },
     { id: "expenses", label: t("expenses", "Expenses"), icon: WalletCards },
+    { id: "attendance", label: t("attendance", "Attendance"), icon: CalendarCheck },
     { id: "people", label: t("employees_salaries", "Employees & salaries"), icon: UsersRound },
     { id: "income", label: t("other_income", "Other income"), icon: Banknote },
     { id: "reports", label: t("reports", "Reports"), icon: ChartNoAxesCombined },
@@ -330,6 +336,7 @@ function App() {
               search={search}
               setModalDetail={setModal}
               today={initialToday}
+              onNavigate={(id) => setPage(id)}
             />
           )}
         </div>
@@ -553,6 +560,7 @@ function Page({
   setModalDetail,
   search = "",
   today,
+  onNavigate,
 }) {
   const { t } = useLanguage();
   const { overview } = useTanks();
@@ -567,6 +575,10 @@ function Page({
   if (page === "station")
     return <TanksPage setModal={setModal} notify={notify} />;
   if (page === "shifts") return <ShiftPage setModal={setModal} />;
+  if (page === "attendance")
+    return <AttendancePage notify={notify} onNavigate={onNavigate} />;
+  if (page === "payroll")
+    return <PayrollPage notify={notify} onNavigate={onNavigate} />;
 
   // Restrict confidential station ledgers for Manager role
   if (!canAccessPage(userRole, page)) {
@@ -805,14 +817,28 @@ function Page({
               <h2>{t("employees_salaries", "Employees & salaries")}</h2>
               <p>{shown.length} {t("records", "records")}</p>
             </div>
-            <div className="table-search search">
-              <Search size={15} />
-              <input
-                value={peopleSearch}
-                onChange={(e) => setPeopleSearch(e.target.value)}
-                placeholder={t("search_records", "Search records...")}
-                aria-label={t("search_records", "Search records...")}
-              />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              {onNavigate && (
+                <button
+                  type="button"
+                  className="button secondary"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', fontSize: 13 }}
+                  onClick={() => onNavigate("attendance")}
+                  id="goto-attendance-btn"
+                >
+                  <CalendarCheck size={15} />
+                  <span>{t("daily_attendance", "Daily Attendance")}</span>
+                </button>
+              )}
+              <div className="table-search search">
+                <Search size={15} />
+                <input
+                  value={peopleSearch}
+                  onChange={(e) => setPeopleSearch(e.target.value)}
+                  placeholder={t("search_records", "Search records...")}
+                  aria-label={t("search_records", "Search records...")}
+                />
+              </div>
             </div>
           </div>
           <div className="table-wrap desktop-table-only">
@@ -1032,7 +1058,7 @@ function ShiftPage({ setModal }) {
               </tr>
             </thead>
             <tbody>
-              {displayedRows.map((r) => {
+              {displayedRows.map((r, idx) => {
                 const [
                   name,
                   person,
@@ -1046,7 +1072,7 @@ function ShiftPage({ setModal }) {
                 ] = r;
                 const variance = closing - (total - sales);
                 return (
-                  <tr key={name}>
+                  <tr key={`${name}-${idx}`}>
                     <td>
                       <strong className="row-title">{name}</strong>
                     </td>
@@ -1090,7 +1116,7 @@ function ShiftPage({ setModal }) {
         </div>
 
         <div className="mobile-cards-only">
-          {displayedRows.map((r) => {
+          {displayedRows.map((r, idx) => {
             const [
               name,
               person,
@@ -1104,7 +1130,7 @@ function ShiftPage({ setModal }) {
             ] = r;
             const variance = closing - (total - sales);
             return (
-              <div key={name} className="mobile-record-card">
+              <div key={`${name}-${idx}`} className="mobile-record-card">
                 <div className="mobile-record-header">
                   <strong className="row-title">{name}</strong>
                   <span className={"status " + (status === "Completed" ? "success" : "warning")}>

@@ -8,6 +8,7 @@ import ReceiveFuelModal from './ReceiveFuelModal';
 import StockAdjustmentModal from './StockAdjustmentModal';
 import TankHistoryModal from './TankHistoryModal';
 import DipReadingModal from './DipReadingModal';
+import DipVerificationModal from './DipVerificationModal';
 import FuelPricesCard from './FuelPricesCard';
 import DispensingMachinesSection from './DispensingMachinesSection';
 import { useLanguage } from '../../context/LanguageContext';
@@ -114,7 +115,8 @@ export default function TanksPage({ notify, setModal }) {
           {tanks.map(tank => (
             <TankCard key={tank.id} tank={tank} perms={perms} demo={demo}
               onReceive={targetTank => open('receive', targetTank)} onHistory={targetTank => open('history', targetTank)}
-              onDip={targetTank => open('dip', targetTank)} onAdjust={targetTank => open('adjust', targetTank)} />
+              onDip={targetTank => open('dip', targetTank)} onAdjust={targetTank => open('adjust', targetTank)}
+              onVerify={targetTank => open('verify', targetTank)} />
           ))}
         </div>
       )}
@@ -185,6 +187,7 @@ export default function TanksPage({ notify, setModal }) {
 
       {dialog && dialog.type === 'receive' && selected && <ReceiveFuelModal tank={selected} api={api} onClose={close} onDone={finish} />}
       {dialog && dialog.type === 'dip' && selected && <DipReadingModal tank={selected} api={api} onClose={close} onDone={finish} />}
+      {dialog && dialog.type === 'verify' && selected && <DipVerificationModal tank={selected} api={api} onClose={close} onDone={finish} />}
       {dialog && dialog.type === 'adjust' && selected && <StockAdjustmentModal tank={selected} api={api} onClose={close} onDone={finish} />}
       {dialog && dialog.type === 'history' && selected && <TankHistoryModal tank={selected} api={api} onClose={close} />}
     </>

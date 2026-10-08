@@ -90,6 +90,87 @@ export function createDemoInventory() {
     ['Rizwan Ahmed', 'Cleaner', 'General', 'Active', 'PKR 30,000'],
   ];
 
+  // Seeded demo attendance register for the current month
+  const demoAttendanceRecords = (() => {
+    const list = [];
+    const staffMeta = [
+      { id: 'demo-emp-1', name: 'Fahad Iqbal', designation: 'Station manager', shift: 'Shift 1 - Day', salary: 65000, leaves: [4] },
+      { id: 'demo-emp-2', name: 'Hamza Raza', designation: 'Shift supervisor', shift: 'Shift 2 - Night', salary: 55000, leaves: [2, 6] },
+      { id: 'demo-emp-3', name: 'Imran Shah', designation: 'Pump attendant', shift: 'Shift 1 - Day', salary: 38000, leaves: [] }, // Perfect attendance!
+      { id: 'demo-emp-4', name: 'Noman Tariq', designation: 'Pump attendant', shift: 'Shift 2 - Night', salary: 37000, absents: [5], leaves: [] },
+      { id: 'demo-emp-5', name: 'Rizwan Ahmed', designation: 'Cleaner', shift: 'General', salary: 30000, leaves: [3] },
+    ];
+
+    // Seed October 1 to October 8, 2026
+    for (let day = 1; day <= 8; day++) {
+      const dayStr = String(day).padStart(2, '0');
+      const date = `2026-10-${dayStr}`;
+      for (const s of staffMeta) {
+        let status = 'Present';
+        let notes = 'Manual on-time attendance';
+        if (s.leaves && s.leaves.includes(day)) {
+          status = 'Leave';
+          notes = 'Approved medical leave';
+        } else if (s.absents && s.absents.includes(day)) {
+          status = 'Absent';
+          notes = 'Unnotified absence';
+        }
+
+        list.push({
+          id: `demo-att-${s.id}-${date}`,
+          employeeId: s.id,
+          employeeName: s.name,
+          designation: s.designation,
+          date,
+          shiftId: s.shift.includes('Night') ? 'shift-night' : 'shift-day',
+          shiftName: s.shift,
+          status,
+          attendanceSource: 'Manual',
+          checkInTime: status === 'Present' ? (s.shift.includes('Night') ? '19:00' : '07:00') : null,
+          checkOutTime: status === 'Present' ? (s.shift.includes('Night') ? '07:00' : '19:00') : null,
+          notes,
+          updatedAt: new Date(`2026-10-${dayStr}T19:00:00Z`).toISOString(),
+        });
+      }
+    }
+    return list;
+  })();
+
+  const demoAttendanceAuditLog = [
+    {
+      id: 'demo-audit-1',
+      attendanceId: 'demo-att-demo-emp-5-2026-10-03',
+      employeeId: 'demo-emp-5',
+      employeeName: 'Rizwan Ahmed',
+      date: '2026-10-03',
+      previousStatus: 'Absent',
+      newStatus: 'Leave',
+      previousCheckIn: null,
+      newCheckIn: null,
+      previousCheckOut: null,
+      newCheckOut: null,
+      reason: 'Medical slip submitted by employee; absence excused as approved leave.',
+      changedByName: 'Hamza Raza (Supervisor)',
+      createdAt: new Date('2026-10-04T08:30:00Z').toISOString(),
+    },
+    {
+      id: 'demo-audit-2',
+      attendanceId: 'demo-att-demo-emp-1-2026-10-04',
+      employeeId: 'demo-emp-1',
+      employeeName: 'Fahad Iqbal',
+      date: '2026-10-04',
+      previousStatus: 'Absent',
+      newStatus: 'Leave',
+      previousCheckIn: null,
+      newCheckIn: null,
+      previousCheckOut: null,
+      newCheckOut: null,
+      reason: 'Station emergency duty compensated with official leave.',
+      changedByName: 'Owner Account',
+      createdAt: new Date('2026-10-05T09:15:00Z').toISOString(),
+    },
+  ];
+
   const getStaffForShift = (num) => {
     const shiftLabel = num === 1 ? 'Shift 1' : 'Shift 2';
     const match = demoEmployeesList.find(e => e[2] && e[2].includes(shiftLabel) && e[3] === 'Active');
@@ -562,6 +643,133 @@ export function createDemoInventory() {
       const row = [name, designation || 'Pump attendant', 'General', 'Active', `PKR ${Number(salary || 0).toLocaleString('en-PK')}`];
       demoEmployeesList.unshift(row);
       return row;
+    },
+
+    async getStaffRoster() {
+      await delay(50);
+      return demoEmployeesList.map((e, idx) => ({
+        id: `demo-emp-${idx + 1}`,
+        name: e[0],
+        designation: e[1],
+        shiftName: e[2] || 'Shift 1 - Day',
+        shiftId: (e[2] || '').includes('Night') ? 'shift-night' : 'shift-day',
+        active: e[3] === 'Active',
+        monthlySalary: Number(String(e[4]).replace(/[^0-9]/g, '')) || 35000,
+      }));
+    },
+
+    async getAttendance({ date, startDate, endDate, employeeId } = {}) {
+      await delay(60);
+      let list = clone(demoAttendanceRecords);
+      if (date) list = list.filter(r => r.date === date);
+      if (startDate) list = list.filter(r => r.date >= startDate);
+      if (endDate) list = list.filter(r => r.date <= endDate);
+      if (employeeId) list = list.filter(r => r.employeeId === employeeId || r.employeeName === employeeId);
+      return list;
+    },
+
+    async markAttendance({ employeeId, date, shiftId, status, notes, checkInTime, checkOutTime, attendanceSource = 'Manual' }) {
+      await delay(80);
+      const roster = await this.getStaffRoster();
+      const staff = roster.find(r => r.id === employeeId || r.name === employeeId) || {
+        name: 'Staff Member',
+        designation: 'Staff',
+        shiftName: 'Shift 1 - Day',
+      };
+
+      // Prevent duplicate attendance: upsert by employeeId + date
+      const existingIdx = demoAttendanceRecords.findIndex(
+        r => (r.employeeId === employeeId || r.employeeName === staff.name) && r.date === date
+      );
+
+      const record = {
+        id: existingIdx >= 0 ? demoAttendanceRecords[existingIdx].id : `demo-att-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        employeeId: staff.id || employeeId,
+        employeeName: staff.name,
+        designation: staff.designation,
+        date,
+        shiftId: shiftId || ((staff.shiftName || '').includes('Night') ? 'shift-night' : 'shift-day'),
+        shiftName: staff.shiftName || 'Shift 1 - Day',
+        status,
+        attendanceSource,
+        checkInTime: checkInTime || (status === 'Present' ? '07:00' : null),
+        checkOutTime: checkOutTime || (status === 'Present' ? '19:00' : null),
+        notes: notes || '',
+        updatedAt: new Date().toISOString(),
+      };
+
+      if (existingIdx >= 0) {
+        demoAttendanceRecords[existingIdx] = record;
+      } else {
+        demoAttendanceRecords.unshift(record);
+      }
+
+      return clone(record);
+    },
+
+    async bulkMarkAttendance(records = []) {
+      await delay(120);
+      const results = [];
+      for (const r of records) {
+        const res = await this.markAttendance(r);
+        results.push(res);
+      }
+      return results;
+    },
+
+    async getAttendanceAuditLog({ attendanceId, employeeId } = {}) {
+      await delay(60);
+      let list = clone(demoAttendanceAuditLog);
+      if (attendanceId) list = list.filter(l => l.attendanceId === attendanceId);
+      if (employeeId) list = list.filter(l => l.employeeId === employeeId);
+      return list;
+    },
+
+    async correctAttendanceRecord({
+      attendanceId,
+      employeeId,
+      date,
+      previousStatus,
+      newStatus,
+      reason,
+      newCheckIn,
+      newCheckOut,
+      changedByName = 'Station Manager',
+    }) {
+      await delay(100);
+      if (!reason || reason.trim().length < 3) {
+        throw new Error('A reason of at least 3 characters is required for attendance correction.');
+      }
+
+      // Update in demoAttendanceRecords
+      const target = demoAttendanceRecords.find(r => r.id === attendanceId || (r.employeeId === employeeId && r.date === date));
+      if (target) {
+        target.status = newStatus;
+        target.notes = reason.trim();
+        if (newCheckIn !== undefined) target.checkInTime = newCheckIn || null;
+        if (newCheckOut !== undefined) target.checkOutTime = newCheckOut || null;
+        target.updatedAt = new Date().toISOString();
+      }
+
+      const auditEntry = {
+        id: `demo-audit-${Date.now()}`,
+        attendanceId: attendanceId || target?.id,
+        employeeId: employeeId || target?.employeeId,
+        employeeName: target?.employeeName || 'Staff Member',
+        date: date || target?.date,
+        previousStatus,
+        newStatus,
+        previousCheckIn: target?.checkInTime,
+        newCheckIn: newCheckIn || null,
+        previousCheckOut: target?.checkOutTime,
+        newCheckOut: newCheckOut || null,
+        reason: reason.trim(),
+        changedByName,
+        createdAt: new Date().toISOString(),
+      };
+
+      demoAttendanceAuditLog.unshift(auditEntry);
+      return { record: clone(target), auditEntry };
     },
 
     async getShiftReconciliation() {

@@ -321,6 +321,29 @@ CREATE TABLE IF NOT EXISTS public.salary_payments (
   paid_at date
 );
 
+-- Attendance (Module 1, 2, 3: Manual Attendance & History, Biometric-Ready)
+CREATE TABLE IF NOT EXISTS public.attendance (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  employee_id uuid NOT NULL REFERENCES public.employees(id) ON DELETE CASCADE,
+  date date NOT NULL DEFAULT current_date,
+  shift_id uuid REFERENCES public.shifts(id) ON DELETE SET NULL,
+  status text NOT NULL CHECK (status IN ('Present', 'Absent', 'Leave')),
+  attendance_source text NOT NULL DEFAULT 'Manual' CHECK (attendance_source IN ('Manual', 'Biometric', 'System')),
+  check_in_time time,
+  check_out_time time,
+  notes text,
+  marked_by uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  biometric_device_id text,
+  biometric_log_id text,
+  CONSTRAINT unique_employee_date UNIQUE (employee_id, date)
+);
+CREATE INDEX IF NOT EXISTS attendance_date_idx ON public.attendance (date);
+CREATE INDEX IF NOT EXISTS attendance_employee_date_idx ON public.attendance (employee_id, date);
+CREATE INDEX IF NOT EXISTS attendance_shift_idx ON public.attendance (shift_id);
+CREATE INDEX IF NOT EXISTS attendance_status_idx ON public.attendance (status);
+
 -- Other Non-Fuel Income
 CREATE TABLE IF NOT EXISTS public.other_income (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -350,6 +373,7 @@ ALTER TABLE public.meter_readings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.expenses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.employees ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.salary_payments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.attendance ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.other_income ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.fuel_transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.dip_readings ENABLE ROW LEVEL SECURITY;
@@ -468,6 +492,16 @@ DO $$ BEGIN
 
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'salary_payments' AND policyname = 'authenticated staff can read salary_payments') THEN
     CREATE POLICY "authenticated staff can read salary_payments" ON public.salary_payments FOR SELECT TO authenticated USING (true);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'attendance' AND policyname = 'authenticated staff can read attendance') THEN
+    CREATE POLICY "authenticated staff can read attendance" ON public.attendance FOR SELECT TO authenticated USING (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'attendance' AND policyname = 'authenticated staff can insert attendance') THEN
+    CREATE POLICY "authenticated staff can insert attendance" ON public.attendance FOR INSERT TO authenticated WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'attendance' AND policyname = 'authenticated staff can update attendance') THEN
+    CREATE POLICY "authenticated staff can update attendance" ON public.attendance FOR UPDATE TO authenticated USING (true);
   END IF;
 END $$;
 

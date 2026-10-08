@@ -1,5 +1,5 @@
 import React from "react";
-import { Fuel, History, Plus, Ruler, Scale } from "lucide-react";
+import { Camera, Fuel, History, Plus, Ruler, Scale } from "lucide-react";
 import {
   formatLiters,
   formatMm,
@@ -20,6 +20,7 @@ export default function TankCard({
   onHistory,
   onDip,
   onAdjust,
+  onVerify,
 }) {
   const { t } = useLanguage();
   // percentage / status come from withStockMetrics() in the shared tank dataset (useTanks).
@@ -155,6 +156,13 @@ export default function TankCard({
               <Scale size={13} /> {t('adjust_stock', 'Adjust stock')}
             </button>
           )}
+        </div>
+      )}
+      {canAct && perms?.update_dip && onVerify && (
+        <div className="tank-verify">
+          <button type="button" className="button secondary small" onClick={() => onVerify(tank)}>
+            <Camera size={15} /> {t('dip_verification', 'Dip Verification')}
+          </button>
         </div>
       )}
     </div>

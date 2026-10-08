@@ -14,3 +14,5 @@ export const inventoryApi = isSupabaseConfigured
   ? createSupabaseInventory(supabase)
   : demoRequested ? createDemoInventory() : createUnconfiguredInventory();
 export { isSupabaseConfigured };
+export { payrollApi } from './payrollService';
+

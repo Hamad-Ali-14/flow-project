@@ -19,5 +19,7 @@ export function createUnconfiguredInventory() {
     cancelScheduledPrice: refuse, applyDuePrices: refuse, getSalesSummary: refuse, listTransactions: refuse, listDips: refuse,
     getExpenses: refuse, saveExpense: refuse, getOtherIncome: refuse, saveOtherIncome: refuse,
     getEmployees: refuse, saveEmployee: refuse, getShiftReconciliation: refuse,
+    getStaffRoster: refuse, getAttendance: refuse, markAttendance: refuse, bulkMarkAttendance: refuse,
+    getAttendanceAuditLog: refuse, correctAttendanceRecord: refuse,
   };
 }

@@ -10,7 +10,7 @@ export const OWNER_ROLES = ['owner', 'admin'];
 const COMMON_PAGES = ['overview', 'shifts', 'station', 'settings'];
 
 // Station ledgers that Managers now share with the Owner.
-export const MANAGER_LEDGER_PAGES = ['expenses', 'people', 'income'];
+export const MANAGER_LEDGER_PAGES = ['expenses', 'people', 'income', 'attendance', 'payroll'];
 
 // Pages that stay Owner/Admin only (executive reporting).
 const OWNER_ONLY_PAGES = ['reports'];

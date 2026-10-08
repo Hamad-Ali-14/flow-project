@@ -1,6 +1,17 @@
 import React, { useEffect, useState } from 'react';
-import { CircleCheck, Eye, EyeOff, LockKeyhole, MailCheck } from 'lucide-react';
+import { CircleCheck, Eye, EyeOff } from 'lucide-react';
 import { Alert } from '../tanks/ModalShell';
+import { STATION_NAME } from '../../config/station';
+
+// Brand block shown at the top of every login-card view: FLOW OPS logo + station name, centred.
+function SignInBrand() {
+  return (
+    <div className="inv-signin-brand">
+      <img src="/assets/flow-logo.png" alt="FLOW OPS" />
+      <div className="inv-signin-station">{STATION_NAME}</div>
+    </div>
+  );
+}
 
 const RESEND_SECONDS = 60; // matches Supabase's default "one reset e-mail per minute" limit
 
@@ -70,8 +81,8 @@ export default function SignInPanel({
 
   if (view === 'sent') {
     return (
-      <div className="card inv-signin" role="dialog" aria-labelledby="inv-signin-title">
-        <div className="modal-mark"><MailCheck size={19} /></div>
+      <div className="card inv-signin centered" role="dialog" aria-labelledby="inv-signin-title">
+        <SignInBrand />
         <h2 id="inv-signin-title">Check your e-mail</h2>
         <p>If an account exists for <strong>{sentTo}</strong>, we have sent a link to reset your password. It can take a minute to arrive; check your spam folder too.</p>
         <p>The link opens this app so you can choose a new password. It works once and expires after a while.</p>
@@ -86,8 +97,8 @@ export default function SignInPanel({
 
   if (view === 'forgot') {
     return (
-      <div className="card inv-signin" role="dialog" aria-labelledby="inv-signin-title">
-        <div className="modal-mark"><LockKeyhole size={19} /></div>
+      <div className="card inv-signin centered" role="dialog" aria-labelledby="inv-signin-title">
+        <SignInBrand />
         <h2 id="inv-signin-title">Forgot your password?</h2>
         <p>Enter the e-mail address of your account and we will send you a link to choose a new password.</p>
         <form onSubmit={sendReset}>
@@ -102,8 +113,8 @@ export default function SignInPanel({
   }
 
   return (
-    <div className="card inv-signin" role="dialog" aria-labelledby="inv-signin-title">
-      <div className="modal-mark"><LockKeyhole size={19} /></div>
+    <div className="card inv-signin centered" role="dialog" aria-labelledby="inv-signin-title">
+      <SignInBrand />
       <h2 id="inv-signin-title">{title}</h2>
       <p>{intro}</p>
       {notice && (

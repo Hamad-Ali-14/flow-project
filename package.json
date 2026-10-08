@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test src/utils/inventoryCalculations.test.js src/utils/pricing.test.js src/utils/flowAiTools.test.js src/utils/rbac.test.js",
+    "test": "node --test src/utils/inventoryCalculations.test.js src/utils/pricing.test.js src/utils/flowAiTools.test.js src/utils/rbac.test.js src/utils/attendance.test.js src/utils/payrollEngine.test.js src/utils/payrollCalculations.test.js src/utils/payrollReports.test.js src/utils/attendancePayload.test.js",
     "check:supabase": "node scripts/check-supabase.mjs"
   },
   "dependencies": {
