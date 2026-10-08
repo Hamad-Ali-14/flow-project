@@ -10,7 +10,7 @@ export default function Sidebar({ nav, page, onNavigate, open, onClose, isManage
   return (
     <aside className={"sidebar " + (open ? "show" : "")}>
       <div className="brand">
-        <img src="/assets/flow-logo.png" alt="" />
+        <img src="assets/flow-logo.png" alt="" />
         <span>
           {t("brand_title", "FLOW")} <b>{t("brand_sub", "OPS")}</b>
         </span>
