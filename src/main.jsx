@@ -60,6 +60,7 @@ import {
   getKarachiGreeting,
 } from "./dateUtils";
 import { canAccessPage, filterNavForRole } from "./utils/rbac";
+import { filterAndSortEmployees, nextSort, sortArrow } from "./utils/employeeTable";
 import {
   msUntilNextKarachiMidnight,
   msUntilNextShiftEnd,
@@ -555,6 +556,8 @@ function Page({
   const { overview } = useTanks();
   const [expenseRange, setExpenseRange] = useState("today");
   const [expenseSearch, setExpenseSearch] = useState(search);
+  const [peopleSearch, setPeopleSearch] = useState(search);
+  const [peopleSort, setPeopleSort] = useState({ key: null, dir: "asc" });
   const userRole = overview?.viewer?.role || 'owner';
   const isAdminOrOwner = userRole === 'owner' || userRole === 'admin';
   const isManager = !isAdminOrOwner;
@@ -772,6 +775,106 @@ function Page({
           {!filtered.length && (
             <p className="empty-state">
               {t("no_expenses", "No expenses match the selected range and search.")}
+            </p>
+          )}
+        </div>
+      </>
+    );
+  }
+  if (page === "people") {
+    // Same card layout as Expenses. `employees` is already shift-filtered upstream; this only searches/sorts it.
+    const p = configs.people;
+    const shown = filterAndSortEmployees(employees, peopleSearch || search, peopleSort);
+    const pill = (status) => (
+      <span className={"status " + (status === "Active" ? "success" : "neutral")}>{status}</span>
+    );
+    return (
+      <>
+        <PageHeading
+          Icon={p.icon}
+          title={t("employees_salaries", "Employees & salaries")}
+          desc={p.desc}
+          button={p.button}
+          onClick={() => setModal("employee")}
+        />
+        <div className="card table-page employees-card">
+          <div className="table-toolbar">
+            <div>
+              <h2>{t("employees_salaries", "Employees & salaries")}</h2>
+              <p>{shown.length} {t("records", "records")}</p>
+            </div>
+            <div className="table-search search">
+              <Search size={15} />
+              <input
+                value={peopleSearch}
+                onChange={(e) => setPeopleSearch(e.target.value)}
+                placeholder={t("search_records", "Search records...")}
+                aria-label={t("search_records", "Search records...")}
+              />
+            </div>
+          </div>
+          <div className="table-wrap desktop-table-only">
+            <table>
+              <thead>
+                <tr>
+                  {p.headers.map((h, idx) => (
+                    <th
+                      key={idx}
+                      aria-sort={peopleSort.key === idx ? (peopleSort.dir === "asc" ? "ascending" : "descending") : "none"}
+                    >
+                      <button
+                        type="button"
+                        className={"th-sort" + (peopleSort.key === idx ? " active" : "")}
+                        onClick={() => setPeopleSort((s) => nextSort(s, idx))}
+                      >
+                        {h}
+                        <span className="sort-arrow" aria-hidden="true">{sortArrow(peopleSort, idx)}</span>
+                      </button>
+                    </th>
+                  ))}
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {shown.map((r, i) => (
+                  <tr key={`${r[0]}-${i}`}>
+                    <td><strong className="row-title">{r[0]}</strong></td>
+                    <td>{r[1]}</td>
+                    <td>{r[2]}</td>
+                    <td>{pill(r[3])}</td>
+                    <td>{r[4]}</td>
+                    <td>
+                      <button className="more" type="button">
+                        <MoreHorizontal size={18} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mobile-cards-only">
+            {shown.map((r, i) => (
+              <div key={`${r[0]}-${i}`} className="mobile-record-card">
+                <div className="mobile-record-header">
+                  <strong className="row-title">{r[0]}</strong>
+                  {pill(r[3])}
+                </div>
+                <div className="mobile-record-body">
+                  <div className="mobile-record-field"><span>{p.headers[1]}</span><b>{r[1]}</b></div>
+                  <div className="mobile-record-field"><span>{p.headers[2]}</span><b>{r[2]}</b></div>
+                  <div className="mobile-record-field"><span>{p.headers[4]}</span><b>{r[4]}</b></div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {!shown.length && (
+            <p className="empty-state">
+              {employees.length
+                ? t("no_employees_match", "No employees match your search.")
+                : "No records found in the database."}
             </p>
           )}
         </div>

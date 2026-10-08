@@ -7955,3 +7955,104 @@ html[lang="ur"],
 [dir="rtl"] .ai-action-btn {
   text-align: right;
 }
+
+/* ============================================================
+   EMPLOYEES & SALARIES TABLE CARD (matches the Expenses card layout)
+   Scoped to .employees-card, nothing else is affected.
+   ============================================================ */
+.employees-card {
+  border-radius: 12px;
+}
+
+.employees-card .table-toolbar {
+  align-items: center;
+  gap: 12px;
+}
+
+.employees-card .table-wrap {
+  margin-top: 14px;
+}
+
+/* separate borders so the header strip can have rounded ends */
+.employees-card table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.employees-card thead th {
+  border: 0;
+  padding: 11px 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.employees-card thead th:first-child {
+  border-top-left-radius: 9px;
+  border-bottom-left-radius: 9px;
+}
+
+.employees-card thead th:last-child {
+  border-top-right-radius: 9px;
+  border-bottom-right-radius: 9px;
+}
+
+.employees-card td {
+  padding: 14px 12px;
+  transition: background 0.12s ease;
+}
+
+.employees-card tbody tr:hover td {
+  background: #f2f7ff;
+}
+
+.employees-card .status {
+  display: inline-block;
+  font-weight: 600;
+}
+
+.th-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.th-sort .sort-arrow {
+  font-size: 10px;
+  letter-spacing: -1px;
+  opacity: 0.55;
+}
+
+.th-sort:hover .sort-arrow,
+.th-sort.active .sort-arrow {
+  opacity: 1;
+  color: var(--blue);
+}
+
+:root[data-theme="dark"] .employees-card.card {
+  background: #0b192e;
+  border-color: #1e293b;
+}
+
+:root[data-theme="dark"] .employees-card .table-wrap td {
+  background: transparent;
+  border-bottom-color: #1e293b;
+}
+
+:root[data-theme="dark"] .employees-card .table-wrap tbody tr:hover td {
+  background: rgba(56, 189, 248, 0.07);
+}
+
+:root[data-theme="dark"] .th-sort:hover .sort-arrow,
+:root[data-theme="dark"] .th-sort.active .sort-arrow {
+  color: #38bdf8;
+}

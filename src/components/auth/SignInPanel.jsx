@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { CircleCheck, LockKeyhole, MailCheck } from 'lucide-react';
+import { CircleCheck, Eye, EyeOff, LockKeyhole, MailCheck } from 'lucide-react';
 import { Alert } from '../tanks/ModalShell';
 
 const RESEND_SECONDS = 60; // matches Supabase's default "one reset e-mail per minute" limit
@@ -19,6 +19,7 @@ export default function SignInPanel({
   const [view, setView] = useState(startInForgot && requestPasswordReset ? 'forgot' : 'signin'); // 'signin' | 'forgot' | 'sent'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [sentTo, setSentTo] = useState('');
@@ -114,7 +115,12 @@ export default function SignInPanel({
         <label htmlFor="inv-email">Email</label>
         <input id="inv-email" type="email" autoComplete="username" autoFocus required value={email} onChange={e => setEmail(e.target.value)} disabled={busy} />
         <label htmlFor="inv-password">Password</label>
-        <input id="inv-password" type="password" autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} disabled={busy} />
+        <div className="pw-field">
+          <input id="inv-password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} disabled={busy} />
+          <button type="button" className="pw-toggle" onClick={() => setShowPassword(v => !v)} aria-label={showPassword ? 'Hide password' : 'Show password'} aria-pressed={showPassword}>
+            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+          </button>
+        </div>
         {requestPasswordReset && (
           <div className="inv-forgot">
             <button type="button" className="link-btn" onClick={() => { if (onDismissNotice) onDismissNotice(); go('forgot'); }} disabled={busy}>Forgot password?</button>
