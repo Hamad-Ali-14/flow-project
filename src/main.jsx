@@ -52,6 +52,7 @@ import ReportsPage from "./ReportsPage";
 import SettingsPage from "./SettingsPage";
 import IncomePage from "./IncomePage";
 import TanksPage from "./components/tanks/TanksPage";
+import FuelPricesCard from "./components/tanks/FuelPricesCard";
 import ShiftClosingModal from "./components/tanks/ShiftClosingModal";
 import OwnerKPIs from "./components/dashboard/OwnerKPIs";
 import Dropdown from "./components/common/Dropdown";
@@ -448,7 +449,31 @@ function App() {
 }
 
 function Overview({ setModal, income = [], expenses = [], today, notify }) {
-  const { userName, sales, overview, reloadPricing, tanks, reload, api } = useTanks();
+  const { userName, sales, overview, reloadPricing, tanks, reload, api, prices } = useTanks();
+
+  // Only show fuel products that are actually connected to an active tank/nozzle.
+  // This keeps unused products (e.g. High Octane before its machine is configured)
+  // off the Overview and makes their cards appear automatically after setup.
+  const activeMachineNumbers = new Set(
+    (overview?.machines || [])
+      .filter(machine => machine.active !== false && machine.status !== "not_working")
+      .map(machine => String(machine.machineNumber ?? "").trim().toUpperCase())
+      .filter(Boolean)
+  );
+  const configuredFuelCodes = new Set(
+    (tanks || [])
+      .filter(tank => tank.active !== false && tank.is_active !== false && !tank.is_disabled)
+      .filter(tank => (tank.nozzles || []).some(nozzle => {
+        if (!nozzle || nozzle.active === false || nozzle.is_active === false || nozzle.is_disabled || nozzle.status === "not_working") return false;
+        const machineNumber = String(nozzle.machineNumber ?? "").trim().toUpperCase();
+        return !activeMachineNumbers.size || !machineNumber || activeMachineNumbers.has(machineNumber);
+      }))
+      .map(tank => String(tank.fuelCode || "").trim().toUpperCase())
+      .filter(Boolean)
+  );
+  const overviewPrices = prices
+    ? { ...prices, fuels: (prices.fuels || []).filter(fuel => configuredFuelCodes.has(String(fuel.code || "").trim().toUpperCase())) }
+    : null;
   const { t, lang } = useLanguage();
   const canSeeSales = Boolean(
     (overview && overview.permissions && overview.permissions.view_sales) ||
@@ -532,6 +557,10 @@ function Overview({ setModal, income = [], expenses = [], today, notify }) {
         />
       </div>
 
+      {/* Read-only fuel prices belong below the chart and forecast on Overview. */}
+      {overviewPrices?.fuels.length > 0 && (overview?.permissions?.manage_prices || overview?.viewer?.role === "owner" || overview?.viewer?.role === "admin") && (
+        <FuelPricesCard prices={overviewPrices} readOnly />
+      )}
 
       {/* Delivery Order Modal */}
       {deliveryOrderTank && (
