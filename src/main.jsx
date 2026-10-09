@@ -1,5 +1,16 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { createRoot } from "react-dom/client";
+
+// Register the PWA service worker only for production builds. This adds installation
+// support without changing the React app, authentication, or Supabase data flow.
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch((error) => {
+      // PWA installation is optional; a registration failure must not break the app.
+      console.warn("FLOW PWA service worker registration failed.", error);
+    });
+  }, { once: true });
+}
 import {
   LayoutDashboard,
   Fuel,
