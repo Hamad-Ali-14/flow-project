@@ -1,3 +1,5 @@
+
+// 
 import { createClient } from '@supabase/supabase-js';
 
 // THE one Supabase client for the whole app. Nothing else may call createClient().
@@ -72,23 +74,15 @@ export const supabaseConfigStatus = Object.freeze({
 });
 export const isSupabaseConfigured = config.problems.length === 0;
 
-// WHERE a login may be remembered (VITE_AUTH_PERSIST):
-//   'session' (default) - sessionStorage: survives a refresh, but a fresh launch (new tab/window,
-//                         browser restart, a new `npm run dev` visit) always starts signed out.
-//   'none'              - memory only: even a page refresh asks for credentials again.
-//   'local'             - localStorage: stay signed in across restarts (the old behaviour).
+// Keep users signed in across PWA closes/reopens by default.
+// Set VITE_AUTH_PERSIST=session to sign out when the browser session ends, or 'none' for memory only.
 const persistMode = ['session', 'none', 'local'].includes(String(env.VITE_AUTH_PERSIST || '').toLowerCase())
-  ? String(env.VITE_AUTH_PERSIST).toLowerCase() : 'session';
+  ? String(env.VITE_AUTH_PERSIST).toLowerCase() : 'local';
 
-// Sessions saved by earlier versions live in localStorage and would silently sign the person
-// in on a "first launch". Purge them unless 'local' persistence was explicitly requested.
-if (isSupabaseConfigured && persistMode !== 'local' && typeof window !== 'undefined') {
-  try {
-    Object.keys(window.localStorage).filter(k => /^sb-.*-auth-token/.test(k)).forEach(k => window.localStorage.removeItem(k));
-  } catch { /* storage unavailable: nothing to purge */ }
-}
+// Do not delete saved Supabase sessions at startup: doing so forces the login screen every launch.
 
 // ---- Password-recovery link --------------------------------------------------------------
+
 // The e-mail from "Forgot password?" opens this app with the recovery token in the URL
 // (#access_token=...&type=recovery) or, if the link was already used / has expired,
 // (#error=access_denied&error_code=otp_expired). Supabase turns the token into a real session, which
@@ -132,7 +126,7 @@ export const supabase = isSupabaseConfigured
   ? createClient(config.url, config.key, {
     auth: {
       persistSession: persistMode !== 'none',
-      storage: persistMode === 'session' ? window.sessionStorage : undefined, // undefined = library default
+      storage: persistMode === 'session' ? window.sessionStorage : undefined, // local mode uses Supabase's default localStorage
       autoRefreshToken: true,
     },
   })
