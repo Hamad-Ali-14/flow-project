@@ -9511,3 +9511,112 @@ html[lang="ur"],
   border-radius: 8px;
   border: 1px solid var(--line);
 }
+
+/* ============================================================
+   OTHER INCOME - live date-range filter (no Apply / Single day)
+   ============================================================ */
+.income-toolbar-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.income-period-field,
+.income-date-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.income-filter-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.income-date-filter {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 14px 0 10px;
+}
+
+.income-date-field input[type="date"] {
+  height: 38px;
+  min-width: 150px;
+  padding: 0 10px;
+  border: 1px solid #c9d8eb;
+  border-radius: 8px;
+  background: #fff;
+  color: #174a9e;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.income-date-field input[type="date"]:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+}
+
+.income-reset-btn {
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.income-reset-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.income-filter-summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.income-filter-summary b {
+  color: var(--ink);
+}
+
+:root[data-theme="dark"] .income-date-field input[type="date"] {
+  border-color: #1e293b;
+  background: #0c1a2c;
+  color: #e2e8f0;
+  color-scheme: dark;
+}
+
+@media (max-width: 760px) {
+  .income-toolbar-controls {
+    width: 100%;
+    justify-content: stretch;
+  }
+  .income-toolbar-controls .table-search {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+  .income-date-field {
+    flex: 1 1 140px;
+  }
+  .income-date-field input[type="date"] {
+    width: 100%;
+  }
+}
+
+.expense-custom-dates {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+}

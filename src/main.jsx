@@ -1,5 +1,16 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { createRoot } from "react-dom/client";
+
+// Register the PWA service worker only for production builds. This adds installation
+// support without changing the React app, authentication, or Supabase data flow.
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch((error) => {
+      // PWA installation is optional; a registration failure must not break the app.
+      console.warn("FLOW PWA service worker registration failed.", error);
+    });
+  }, { once: true });
+}
 import {
   LayoutDashboard,
   Fuel,
@@ -46,6 +57,7 @@ import OwnerKPIs from "./components/dashboard/OwnerKPIs";
 import Dropdown from "./components/common/Dropdown";
 import FlowAIAgent from "./components/dashboard/FlowAIAgent";
 import FuelForecast from "./components/dashboard/FuelForecast";
+import FuelPricesCard from "./components/tanks/FuelPricesCard";
 import DeliveryOrderModal from "./components/dashboard/DeliveryOrderModal";
 import { TankDataProvider, useTanks } from "./hooks/useTanks";
 import AuthGate from "./components/auth/AuthGate";
@@ -115,8 +127,12 @@ export function filterExpenses(
   search = "",
   range = "today",
   todayISO = getKarachiTodayISO(),
+  custom = {},
 ) {
-  const { startISO, endISO } = getExpenseDateRange(range, todayISO);
+  // "custom" uses the picked dates; an empty side means no limit on that side.
+  const { startISO, endISO } = range === "custom"
+    ? { startISO: custom.start || "0000-01-01", endISO: custom.end || "9999-12-31" }
+    : getExpenseDateRange(range, todayISO);
   const query = search.trim().toLowerCase();
   return expenses.filter(
     (e) =>
@@ -426,7 +442,7 @@ function App() {
           onDone={() => setShiftReminder(null)}
         />
       )}
-      {isAdminOrOwner && (
+      {userRole === 'owner' && page === 'overview' && (
         <FlowAIFAB
           userName={userName}
           expenses={expenses}
@@ -442,7 +458,31 @@ function App() {
 }
 
 function Overview({ setModal, income = [], expenses = [], today, notify }) {
-  const { userName, sales, overview, reloadPricing, tanks, reload, api } = useTanks();
+  const { userName, sales, overview, reloadPricing, tanks, reload, api, prices } = useTanks();
+
+  // Only show fuel products that are actually connected to an active tank/nozzle.
+  // This keeps unused products (e.g. High Octane before its machine is configured)
+  // off the Overview and makes their cards appear automatically after setup.
+  const activeMachineNumbers = new Set(
+    (overview?.machines || [])
+      .filter(machine => machine.active !== false && machine.status !== "not_working")
+      .map(machine => String(machine.machineNumber ?? "").trim().toUpperCase())
+      .filter(Boolean)
+  );
+  const configuredFuelCodes = new Set(
+    (tanks || [])
+      .filter(tank => tank.active !== false && tank.is_active !== false && !tank.is_disabled)
+      .filter(tank => (tank.nozzles || []).some(nozzle => {
+        if (!nozzle || nozzle.active === false || nozzle.is_active === false || nozzle.is_disabled || nozzle.status === "not_working") return false;
+        const machineNumber = String(nozzle.machineNumber ?? "").trim().toUpperCase();
+        return !activeMachineNumbers.size || !machineNumber || activeMachineNumbers.has(machineNumber);
+      }))
+      .map(tank => String(tank.fuelCode || "").trim().toUpperCase())
+      .filter(Boolean)
+  );
+  const overviewPrices = prices
+    ? { ...prices, fuels: (prices.fuels || []).filter(fuel => configuredFuelCodes.has(String(fuel.code || "").trim().toUpperCase())) }
+    : null;
   const { t, lang } = useLanguage();
   const canSeeSales = Boolean(
     (overview && overview.permissions && overview.permissions.view_sales) ||
@@ -526,6 +566,11 @@ function Overview({ setModal, income = [], expenses = [], today, notify }) {
         />
       </div>
 
+      {/* Read-only fuel prices belong below the chart and forecast on Overview. */}
+      {overviewPrices?.fuels.length > 0 && (overview?.permissions?.manage_prices || overview?.viewer?.role === "owner" || overview?.viewer?.role === "admin") && (
+        <FuelPricesCard prices={overviewPrices} readOnly />
+      )}
+
 
       {/* Delivery Order Modal */}
       {deliveryOrderTank && (
@@ -570,6 +615,8 @@ function Page({
   const { t } = useLanguage();
   const { overview } = useTanks();
   const [expenseRange, setExpenseRange] = useState("today");
+  const [expenseStart, setExpenseStart] = useState("");
+  const [expenseEnd, setExpenseEnd] = useState("");
   const [expenseSearch, setExpenseSearch] = useState(search);
   const userRole = overview?.viewer?.role || 'owner';
   const isAdminOrOwner = userRole === 'owner' || userRole === 'admin';
@@ -664,7 +711,7 @@ function Page({
   };
   if (page === "expenses") {
     const effectiveSearch = expenseSearch || search;
-    const filtered = filterExpenses(expenses, effectiveSearch, expenseRange);
+    const filtered = filterExpenses(expenses, effectiveSearch, expenseRange, undefined, { start: expenseStart, end: expenseEnd });
     const total = filtered.reduce((sum, e) => sum + e.amount, 0);
     return (
       <>
@@ -693,8 +740,41 @@ function Page({
               <option value="today">{t("range_today", "Today's Expense")}</option>
               <option value="week">{t("range_week", "Weekly Expense")}</option>
               <option value="month">{t("range_month", "Monthly Expense")}</option>
+              <option value="custom">{t("period_custom", "Custom Date")}</option>
             </select>
           </label>
+          {expenseRange === "custom" && (
+            <div className="expense-custom-dates">
+              <label className="income-date-field">
+                <span className="income-filter-label">{t("start_date", "START DATE")}</span>
+                <input
+                  type="date"
+                  value={expenseStart}
+                  max={expenseEnd || undefined}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setExpenseStart(v);
+                    if (v && expenseEnd && v > expenseEnd) setExpenseEnd(v);
+                  }}
+                  aria-label={t("start_date", "Start date")}
+                />
+              </label>
+              <label className="income-date-field">
+                <span className="income-filter-label">{t("end_date", "END DATE")}</span>
+                <input
+                  type="date"
+                  value={expenseEnd}
+                  min={expenseStart || undefined}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setExpenseEnd(v);
+                    if (v && expenseStart && v < expenseStart) setExpenseStart(v);
+                  }}
+                  aria-label={t("end_date", "End date")}
+                />
+              </label>
+            </div>
+          )}
         </div>
         <div className="card table-page">
           <div className="table-toolbar">
@@ -1739,8 +1819,7 @@ function FlowAIFAB({ userName, expenses, income, employees, today, notify, onNav
   const { api } = useTanks();
 
   const userRole = overview?.viewer?.role || 'owner';
-  const isOwnerOrAdmin = userRole === 'owner' || userRole === 'admin';
-  if (!isOwnerOrAdmin) return null;
+  const isOwner = userRole === 'owner';
 
   useEffect(() => {
     if (api?.getShiftReconciliation) {
@@ -1749,6 +1828,8 @@ function FlowAIFAB({ userName, expenses, income, employees, today, notify, onNav
       }).catch(() => { });
     }
   }, [api]);
+
+  if (!isOwner) return null;
 
   return (
     <>

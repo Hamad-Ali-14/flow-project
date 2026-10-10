@@ -257,3 +257,36 @@ Do not re-run 20261001 after 20261002: it would restore the old `close_shift` / 
 ### Tests
 `npm test` also runs `src/utils/pricing.test.js` (revenue maths, PKT midnight and DST-free conversion, week/month helpers, chart/percentage helpers).
 >>>>>>> 6cb1bad17ea5e26fa7cbcecb5dec6a37f979c8a8
+
+## PWA installation (Android, iPhone, and desktop)
+
+This project includes a lightweight Progressive Web App setup using the existing Vite build and a native service worker (no additional runtime dependency is required).
+
+### Build and run locally
+
+```bash
+npm install
+npm run build
+npm run preview
+```
+
+For local development, the service worker is intentionally not registered by `npm run dev`; this avoids stale caches while editing. PWA installation should be checked against the production preview or deployed HTTPS site.
+
+### Android
+
+1. Deploy the production build to an HTTPS host.
+2. Open the deployed URL in Chrome.
+3. Use Chrome's **Install app** option (or **Add to Home screen**, depending on the browser version).
+
+### iPhone
+
+1. Deploy the production build to an HTTPS host.
+2. Open the site in Safari.
+3. Tap **Share**, then **Add to Home Screen**, and confirm.
+
+### Notes
+
+- The PWA uses the existing FLOW branding and does not change application pages or business logic.
+- The service worker caches the application shell and static same-origin assets only. It does not cache Supabase/API responses or enable offline financial transactions.
+- HTTPS is required for installation on deployed sites; localhost is allowed for development testing.
+- Environment files such as `.env.local` are intentionally not included in this ZIP. Create your own `.env.local` from `.env.example` and enter your existing Supabase project settings locally. Never commit that file to GitHub.
