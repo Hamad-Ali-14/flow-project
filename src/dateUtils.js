@@ -87,6 +87,10 @@ export function getKarachiShift(now = new Date()) {
   return { ...shift, hours: `${hour12(shift.startHour)} - ${hour12(shift.endHour)}` };
 }
 
+export function getKarachiEndedShift(now = new Date()) {
+  return getKarachiShift(new Date(now.getTime() - 30 * 60 * 1000));
+}
+
 // Ms until the next shift boundary (7 AM or 7 PM PKT) strictly after `now`.
 export function msUntilNextShiftEnd(now = new Date()) {
   const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: KARACHI_TIME_ZONE, hour: '2-digit', hour12: false }).format(now)) % 24;

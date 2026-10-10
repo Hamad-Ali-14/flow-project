@@ -120,6 +120,14 @@ function attendanceFailure(error, payload, action) {
     return error;
   }
   const raw = String(error?.message || error || 'Unknown error');
+  if (raw.includes('PAYROLL_FINALIZED_LOCKED')) {
+    // Short, calm wording for staff; the technical error is still in the console below.
+    console.error(`[attendance] ${action} blocked: payroll finalized for that month`, { payload });
+    return new AttendanceError(
+      "This employee's salary for that month is already finalized, so attendance can't be changed. Ask the owner to re-open payroll first.",
+      { code: error?.code, details: error?.details, hint: error?.hint, payload },
+    );
+  }
   const parts = [raw.startsWith('FLOW:') ? raw.slice(5) : raw];
   if (error?.details && !raw.includes(error.details)) parts.push(error.details);
   if (error?.hint) parts.push(`Hint: ${error.hint}`);
@@ -613,6 +621,33 @@ export function createSupabaseInventory(supabase) {
       } catch (err) {
         throw attendanceFailure(err, records, 'bulkMarkAttendance');
       }
+      // Skip employees whose payroll for that month is already finalized, instead of failing the whole batch.
+      let skippedLocked = [];
+      try {
+        const ids = [...new Set(rows.map(r => r.employee_id))];
+        const months = [...new Set(rows.map(r => Number(String(r.date).slice(5, 7))))];
+        const years = [...new Set(rows.map(r => Number(String(r.date).slice(0, 4))))];
+        const { data: locked } = await supabase
+          .from('payroll_records')
+          .select('employee_id, month, year')
+          .eq('locked', true)
+          .in('employee_id', ids)
+          .in('month', months)
+          .in('year', years);
+        if (locked && locked.length) {
+          const lockedKeys = new Set(locked.map(l => `${l.employee_id}|${l.year}-${String(l.month).padStart(2, '0')}`));
+          const isLocked = r => lockedKeys.has(`${r.employee_id}|${String(r.date).slice(0, 7)}`);
+          skippedLocked = rows.filter(isLocked).map(r => r.employee_id);
+          rows = rows.filter(r => !isLocked(r));
+        }
+      } catch (lockCheckErr) {
+        console.warn('[attendance] payroll lock pre-check failed; continuing', lockCheckErr);
+      }
+      if (!rows.length) {
+        const empty = [];
+        empty.skippedLocked = skippedLocked;
+        return empty;
+      }
       if (import.meta.env.DEV) console.debug('[attendance] bulkMarkAttendance payload', rows);
 
       const { data, error } = await supabase
@@ -626,7 +661,7 @@ export function createSupabaseInventory(supabase) {
         `);
 
       if (error) throw attendanceFailure(error, rows, 'bulkMarkAttendance');
-      return (data || []).map(d => ({
+      const saved = (data || []).map(d => ({
         id: d.id,
         employeeId: d.employee_id,
         employeeName: d.employees?.full_name || '',
@@ -638,6 +673,8 @@ export function createSupabaseInventory(supabase) {
         attendanceSource: d.attendance_source || 'Manual',
         notes: d.notes || '',
       }));
+      saved.skippedLocked = skippedLocked;
+      return saved;
     },
 
     async getAttendanceAuditLog({ attendanceId, employeeId } = {}) {

@@ -6,7 +6,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import FuelPriceModal from './FuelPriceModal';
 
 // Owner/admin/manager: TanksPage renders this when permissions.manage_prices is true.
-export default function FuelPricesCard({ prices, api, onChanged, notify, readOnly = false }) {
+export default function FuelPricesCard({ prices, api, onChanged, notify }) {
   const { t } = useLanguage();
   const [editing, setEditing] = useState(null);
   const [cancelling, setCancelling] = useState('');
@@ -32,19 +32,19 @@ export default function FuelPricesCard({ prices, api, onChanged, notify, readOnl
             <div className="price-tile-top"><span className="tank-badge"><Tag size={16} /></span><strong>{f.name}</strong></div>
             <div className="price-now">{f.price > 0 ? formatPrice(f.price) : (t('no_price_set') || 'Not set')}<small> / litre</small></div>
             <div className="price-since">{f.effectiveFrom ? `${t('active_since') || 'Active since'} ${formatKarachiDateTime(f.effectiveFrom)}` : (t('no_price_set') || 'No price has been set yet')}</div>
-            {!readOnly && f.pending && (
+            {f.pending && (
               <div className="price-pending">
                 <span><b>{formatPrice(f.pending.price)}</b> from {formatKarachiDateTime(f.pending.effectiveAt)}</span>
                 <button type="button" className="link-btn tiny" onClick={() => cancel(f)} disabled={cancelling === f.pending.id}><X size={12} /> {cancelling === f.pending.id ? 'Cancelling...' : (t('cancel') || 'Cancel')}</button>
               </div>
             )}
-            {!readOnly && <button type="button" className="button secondary small" onClick={() => setEditing(f.id)}>{t('change_price') || 'Change price'}</button>}
+            <button type="button" className="button secondary small" onClick={() => setEditing(f.id)}>{t('change_price') || 'Change price'}</button>
           </div>
         ))}
         {!prices.fuels.length && <p className="snapshot-note">No fuel products are configured.</p>}
       </div>
 
-      {!readOnly && prices.history.length > 0 && (
+      {prices.history.length > 0 && (
         <div className="table-wrap">
           <table>
             <thead><tr>{['Took effect (PKT)', 'Fuel', 'Price', 'Previous', 'How', 'Set by'].map(h => <th key={h}>{h}</th>)}</tr></thead>
@@ -63,7 +63,7 @@ export default function FuelPricesCard({ prices, api, onChanged, notify, readOnl
         </div>
       )}
 
-      {!readOnly && editing && prices.fuels.find(f => f.id === editing) && (
+      {editing && prices.fuels.find(f => f.id === editing) && (
         <FuelPriceModal fuel={prices.fuels.find(f => f.id === editing)} api={api} onClose={() => setEditing(null)}
           onDone={(next, message) => { onChanged(next); notify(message); setEditing(null); }} />
       )}

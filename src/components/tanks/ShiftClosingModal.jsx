@@ -9,7 +9,7 @@ import { useLanguage } from '../../context/LanguageContext';
 
 // Station-wide: a shift covers every active nozzle, grouped here by tank. Opening a
 // closing from a tank card simply lists that tank first.
-export default function ShiftClosingModal({ tanks, openShift, focusTankId, api, onClose, onDone, onRefresh, perms = {} }) {
+export default function ShiftClosingModal({ tanks, openShift, focusTankId, shiftName: shiftNameProp, api, onClose, onDone, onRefresh, perms = {} }) {
   const { t } = useLanguage();
   const { addNotification } = useNotifications();
   const [inputs, setInputs] = useState({});
@@ -94,7 +94,7 @@ export default function ShiftClosingModal({ tanks, openShift, focusTankId, api, 
     () => [...tanks].filter(t => t.active).sort((a, b) => (b.id === focusTankId) - (a.id === focusTankId)),
     [tanks, focusTankId],
   );
-  const shiftName = getKarachiShift().name;
+  const shiftName = shiftNameProp || getKarachiShift().name;
   const projection = useMemo(() => projectShiftClosing(ordered, inputs), [ordered, inputs]);
 
   if (!openShift) {

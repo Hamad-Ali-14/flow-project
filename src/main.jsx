@@ -1,16 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { createRoot } from "react-dom/client";
-
-// Register the PWA service worker only for production builds. This adds installation
-// support without changing the React app, authentication, or Supabase data flow.
-if (import.meta.env.PROD && "serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch((error) => {
-      // PWA installation is optional; a registration failure must not break the app.
-      console.warn("FLOW PWA service worker registration failed.", error);
-    });
-  }, { once: true });
-}
 import {
   LayoutDashboard,
   Fuel,
@@ -52,7 +41,6 @@ import ReportsPage from "./ReportsPage";
 import SettingsPage from "./SettingsPage";
 import IncomePage from "./IncomePage";
 import TanksPage from "./components/tanks/TanksPage";
-import FuelPricesCard from "./components/tanks/FuelPricesCard";
 import ShiftClosingModal from "./components/tanks/ShiftClosingModal";
 import OwnerKPIs from "./components/dashboard/OwnerKPIs";
 import Dropdown from "./components/common/Dropdown";
@@ -81,6 +69,7 @@ import {
   msUntilNextKarachiMidnight,
   msUntilNextShiftEnd,
   getKarachiShift,
+  getKarachiEndedShift,
 } from "./dateUtils";
 
 const nav = [
@@ -90,7 +79,7 @@ const nav = [
   { id: "attendance", label: "Attendance", icon: CalendarCheck },
   { id: "payroll", label: "Payroll", icon: Banknote },
   { id: "expenses", label: "Expenses", icon: WalletCards },
-  { id: "people", label: "Employees & salaries", icon: UsersRound },
+  { id: "payroll", label: "Employees & salaries", icon: UsersRound },
   { id: "income", label: "Other income", icon: Banknote },
   { id: "reports", label: "Reports", icon: ChartNoAxesCombined },
 ];
@@ -183,7 +172,7 @@ function App() {
     { id: "station", label: t("tanks_nozzles", "Tanks & nozzles"), icon: Fuel },
     { id: "expenses", label: t("expenses", "Expenses"), icon: WalletCards },
     { id: "attendance", label: t("attendance", "Attendance"), icon: CalendarCheck },
-    { id: "people", label: t("employees_salaries", "Employees & salaries"), icon: UsersRound },
+    { id: "payroll", label: t("employees_salaries", "Employees & salaries"), icon: UsersRound },
     { id: "income", label: t("other_income", "Other income"), icon: Banknote },
     { id: "reports", label: t("reports", "Reports"), icon: ChartNoAxesCombined },
   ];
@@ -197,7 +186,7 @@ function App() {
   }, [userRole, page]);
 
   useShiftReminder(useCallback(() => {
-    const shift = getKarachiShift();
+    const shift = getKarachiEndedShift();
     setShiftReminder(shift);
     addNotification({
       id: 'shift-' + Date.now(),
@@ -207,6 +196,10 @@ function App() {
       message: `${shift.name} ${t('notif_shift_msg', 'has ended. Please close the shift and record meter readings before the next shift begins.')}`
     });
   }, [addNotification, t]));
+
+
+
+
 
   useEffect(() => {
     const themeVal = darkMode ? "dark" : "light";
@@ -449,31 +442,7 @@ function App() {
 }
 
 function Overview({ setModal, income = [], expenses = [], today, notify }) {
-  const { userName, sales, overview, reloadPricing, tanks, reload, api, prices } = useTanks();
-
-  // Only show fuel products that are actually connected to an active tank/nozzle.
-  // This keeps unused products (e.g. High Octane before its machine is configured)
-  // off the Overview and makes their cards appear automatically after setup.
-  const activeMachineNumbers = new Set(
-    (overview?.machines || [])
-      .filter(machine => machine.active !== false && machine.status !== "not_working")
-      .map(machine => String(machine.machineNumber ?? "").trim().toUpperCase())
-      .filter(Boolean)
-  );
-  const configuredFuelCodes = new Set(
-    (tanks || [])
-      .filter(tank => tank.active !== false && tank.is_active !== false && !tank.is_disabled)
-      .filter(tank => (tank.nozzles || []).some(nozzle => {
-        if (!nozzle || nozzle.active === false || nozzle.is_active === false || nozzle.is_disabled || nozzle.status === "not_working") return false;
-        const machineNumber = String(nozzle.machineNumber ?? "").trim().toUpperCase();
-        return !activeMachineNumbers.size || !machineNumber || activeMachineNumbers.has(machineNumber);
-      }))
-      .map(tank => String(tank.fuelCode || "").trim().toUpperCase())
-      .filter(Boolean)
-  );
-  const overviewPrices = prices
-    ? { ...prices, fuels: (prices.fuels || []).filter(fuel => configuredFuelCodes.has(String(fuel.code || "").trim().toUpperCase())) }
-    : null;
+  const { userName, sales, overview, reloadPricing, tanks, reload, api } = useTanks();
   const { t, lang } = useLanguage();
   const canSeeSales = Boolean(
     (overview && overview.permissions && overview.permissions.view_sales) ||
@@ -557,10 +526,6 @@ function Overview({ setModal, income = [], expenses = [], today, notify }) {
         />
       </div>
 
-      {/* Read-only fuel prices belong below the chart and forecast on Overview. */}
-      {overviewPrices?.fuels.length > 0 && (overview?.permissions?.manage_prices || overview?.viewer?.role === "owner" || overview?.viewer?.role === "admin") && (
-        <FuelPricesCard prices={overviewPrices} readOnly />
-      )}
 
       {/* Delivery Order Modal */}
       {deliveryOrderTank && (
@@ -606,8 +571,6 @@ function Page({
   const { overview } = useTanks();
   const [expenseRange, setExpenseRange] = useState("today");
   const [expenseSearch, setExpenseSearch] = useState(search);
-  const [peopleSearch, setPeopleSearch] = useState(search);
-  const [peopleSort, setPeopleSort] = useState({ key: null, dir: "asc" });
   const userRole = overview?.viewer?.role || 'owner';
   const isAdminOrOwner = userRole === 'owner' || userRole === 'admin';
   const isManager = !isAdminOrOwner;
@@ -829,120 +792,6 @@ function Page({
           {!filtered.length && (
             <p className="empty-state">
               {t("no_expenses", "No expenses match the selected range and search.")}
-            </p>
-          )}
-        </div>
-      </>
-    );
-  }
-  if (page === "people") {
-    // Same card layout as Expenses. `employees` is already shift-filtered upstream; this only searches/sorts it.
-    const p = configs.people;
-    const shown = filterAndSortEmployees(employees, peopleSearch || search, peopleSort);
-    const pill = (status) => (
-      <span className={"status " + (status === "Active" ? "success" : "neutral")}>{status}</span>
-    );
-    return (
-      <>
-        <PageHeading
-          Icon={p.icon}
-          title={t("employees_salaries", "Employees & salaries")}
-          desc={p.desc}
-          button={p.button}
-          onClick={() => setModal("employee")}
-        />
-        <div className="card table-page employees-card">
-          <div className="table-toolbar">
-            <div>
-              <h2>{t("employees_salaries", "Employees & salaries")}</h2>
-              <p>{shown.length} {t("records", "records")}</p>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              {onNavigate && (
-                <button
-                  type="button"
-                  className="button secondary"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', fontSize: 13 }}
-                  onClick={() => onNavigate("attendance")}
-                  id="goto-attendance-btn"
-                >
-                  <CalendarCheck size={15} />
-                  <span>{t("daily_attendance", "Daily Attendance")}</span>
-                </button>
-              )}
-              <div className="table-search search">
-                <Search size={15} />
-                <input
-                  value={peopleSearch}
-                  onChange={(e) => setPeopleSearch(e.target.value)}
-                  placeholder={t("search_records", "Search records...")}
-                  aria-label={t("search_records", "Search records...")}
-                />
-              </div>
-            </div>
-          </div>
-          <div className="table-wrap desktop-table-only">
-            <table>
-              <thead>
-                <tr>
-                  {p.headers.map((h, idx) => (
-                    <th
-                      key={idx}
-                      aria-sort={peopleSort.key === idx ? (peopleSort.dir === "asc" ? "ascending" : "descending") : "none"}
-                    >
-                      <button
-                        type="button"
-                        className={"th-sort" + (peopleSort.key === idx ? " active" : "")}
-                        onClick={() => setPeopleSort((s) => nextSort(s, idx))}
-                      >
-                        {h}
-                        <span className="sort-arrow" aria-hidden="true">{sortArrow(peopleSort, idx)}</span>
-                      </button>
-                    </th>
-                  ))}
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {shown.map((r, i) => (
-                  <tr key={`${r[0]}-${i}`}>
-                    <td><strong className="row-title">{r[0]}</strong></td>
-                    <td>{r[1]}</td>
-                    <td>{r[2]}</td>
-                    <td>{pill(r[3])}</td>
-                    <td>{r[4]}</td>
-                    <td>
-                      <button className="more" type="button">
-                        <MoreHorizontal size={18} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="mobile-cards-only">
-            {shown.map((r, i) => (
-              <div key={`${r[0]}-${i}`} className="mobile-record-card">
-                <div className="mobile-record-header">
-                  <strong className="row-title">{r[0]}</strong>
-                  {pill(r[3])}
-                </div>
-                <div className="mobile-record-body">
-                  <div className="mobile-record-field"><span>{p.headers[1]}</span><b>{r[1]}</b></div>
-                  <div className="mobile-record-field"><span>{p.headers[2]}</span><b>{r[2]}</b></div>
-                  <div className="mobile-record-field"><span>{p.headers[4]}</span><b>{r[4]}</b></div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {!shown.length && (
-            <p className="empty-state">
-              {employees.length
-                ? t("no_employees_match", "No employees match your search.")
-                : "No records found in the database."}
             </p>
           )}
         </div>
@@ -1304,6 +1153,7 @@ function ShiftReminderModal({ shift, onDone }) {
           tanks={tanks}
           openShift={overview?.openShift ?? null}
           focusTankId={null}
+          shiftName={shift.name}
           api={api}
           onClose={() => setClosing(false)}
           onDone={(msg) => {

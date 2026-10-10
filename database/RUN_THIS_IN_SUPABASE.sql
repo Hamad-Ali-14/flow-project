@@ -1,4 +1,3 @@
--- =====================================================================
 -- FLOW OPS: Module 1 — Attendance Database & Rules
 -- Migration: Creates the attendance table, constraints, indexes,
 -- RLS policies, and prepares schema for future biometric integration.
@@ -393,35 +392,46 @@ RETURNS jsonb
 LANGUAGE plpgsql
 IMMUTABLE
 AS $$
+-- p_deductible_days = TOTAL days off in the month (leave, plus absent when the setting counts it).
+--   0 days -> bonus of one daily salary (perfect attendance)
+--   1 day  -> free day: no bonus, no deduction
+--   N >= 2 -> (N - 1) days deducted
+-- Every amount is a whole rupee; 0.5 and above rounds up, below 0.5 rounds down.
+-- The returned 'deductible_days' is the number of days actually deducted.
 DECLARE
-  v_salary_paisa bigint;
-  v_daily_paisa bigint;
-  v_bonus_paisa bigint := 0;
-  v_deduction_paisa bigint := 0;
-  v_final_paisa bigint;
+  v_salary bigint;
+  v_daily bigint;
+  v_bonus bigint := 0;
+  v_deduction bigint := 0;
+  v_deduct_days int := 0;
+  v_final bigint;
 BEGIN
   IF p_monthly_salary < 0 OR p_deductible_days < 0 OR p_days_basis < 1 THEN
     RAISE EXCEPTION 'FLOW:INVALID_INPUT';
   END IF;
 
-  v_salary_paisa := round(p_monthly_salary * 100)::bigint;
-  v_daily_paisa := round(v_salary_paisa::numeric / p_days_basis)::bigint;
+  v_salary := round(p_monthly_salary)::bigint;
+  v_daily := round(v_salary::numeric / p_days_basis)::bigint;
 
   IF p_deductible_days = 0 THEN
     IF p_bonus_allowed THEN
-      v_bonus_paisa := v_daily_paisa;
+      v_bonus := v_daily;
     END IF;
   ELSE
-    v_deduction_paisa := least(round((p_deductible_days * v_salary_paisa)::numeric / p_days_basis)::bigint, v_salary_paisa);
+    v_deduct_days := greatest(p_deductible_days - 1, 0);
+    IF v_deduct_days > 0 THEN
+      v_deduction := least(round((v_deduct_days * v_salary)::numeric / p_days_basis)::bigint, v_salary);
+    END IF;
   END IF;
 
-  v_final_paisa := greatest(0::bigint, v_salary_paisa + v_bonus_paisa - v_deduction_paisa);
+  v_final := greatest(0::bigint, v_salary + v_bonus - v_deduction);
 
   RETURN jsonb_build_object(
-    'daily_salary', (v_daily_paisa::numeric / 100),
-    'deduction', (v_deduction_paisa::numeric / 100),
-    'bonus', (v_bonus_paisa::numeric / 100),
-    'final_salary', (v_final_paisa::numeric / 100)
+    'daily_salary', v_daily,
+    'deduction', v_deduction,
+    'bonus', v_bonus,
+    'final_salary', v_final,
+    'deductible_days', v_deduct_days
   );
 END;
 $$;
@@ -602,7 +612,7 @@ BEGIN
         present_days = v_present,
         absent_days = v_absent,
         leave_days = v_leave,
-        deductible_days = v_deductible,
+        deductible_days = (v_calc->>'deductible_days')::int,
         deduction = (v_calc->>'deduction')::numeric,
         bonus = (v_calc->>'bonus')::numeric,
         final_salary = (v_calc->>'final_salary')::numeric,
@@ -618,7 +628,7 @@ BEGIN
         deduction, bonus, final_salary, balance, status
       ) VALUES (
         v_emp.id, p_month, p_year, v_emp.monthly_salary, (v_calc->>'daily_salary')::numeric, v_settings.days_basis,
-        v_present, v_absent, v_leave, v_deductible,
+        v_present, v_absent, v_leave, (v_calc->>'deductible_days')::int,
         (v_calc->>'deduction')::numeric, (v_calc->>'bonus')::numeric, (v_calc->>'final_salary')::numeric,
         (v_calc->>'final_salary')::numeric, 'DRAFT'
       );
@@ -794,7 +804,20 @@ DECLARE
   v_finalized int := 0;
   v_not_finalized int := 0;
   v_actor text := 'Station Manager';
+  v_today date := (now() AT TIME ZONE 'Asia/Karachi')::date;
+  v_last_day date;
 BEGIN
+  IF p_month IS NULL OR p_year IS NULL OR p_month NOT BETWEEN 1 AND 12 OR p_year < 2020 THEN
+    RAISE EXCEPTION 'FLOW:INVALID_PERIOD';
+  END IF;
+
+  v_last_day := (make_date(p_year, p_month, 1) + interval '1 month' - interval '1 day')::date;
+  IF v_today <= v_last_day THEN
+    RAISE EXCEPTION 'FLOW:MONTH_NOT_ENDED'
+      USING ERRCODE = 'P0001',
+            DETAIL  = 'Payroll can only be finalized after the month has ended, so attendance stays open for the whole month.';
+  END IF;
+
   UPDATE public.payroll_records SET
     status = 'FINALIZED',
     locked = true,
@@ -954,7 +977,9 @@ BEGIN
     -- If trigger was called without special recalculation session flag, raise restriction error
     IF current_setting('flow.allow_locked_attendance_correction', true) IS DISTINCT FROM 'true' THEN
       RAISE EXCEPTION 'FLOW:PAYROLL_FINALIZED_LOCKED'
-        USING message = 'Payroll for this month has been finalized and locked. Attendance cannot be modified directly without an approved manager recalculation override.';
+        USING ERRCODE = 'P0001',
+              DETAIL  = 'Payroll for this month has been finalized and locked. Attendance cannot be modified directly without an approved manager recalculation override.',
+              HINT    = 'Ask a manager to run an approved payroll recalculation for this employee and month.';
     END IF;
   END IF;
 
@@ -1062,7 +1087,7 @@ BEGIN
     present_days = v_present,
     absent_days = v_absent,
     leave_days = v_leave,
-    deductible_days = v_deductible,
+    deductible_days = (v_calc->>'deductible_days')::int,
     deduction = (v_calc->>'deduction')::numeric,
     bonus = (v_calc->>'bonus')::numeric,
     final_salary = v_new_final,

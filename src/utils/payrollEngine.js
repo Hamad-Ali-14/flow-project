@@ -1,22 +1,26 @@
 // Payroll Calculation Engine & Salary Configuration (Modules 5 & 6)
 //
 // Actual Station Rules:
-//   Daily Salary = Monthly Salary ÷ 30
+//   Daily Salary = Monthly Salary ÷ 30   (whole rupees)
 //
-//   If Leave Days = 0:
-//       Salary = Monthly Salary + Daily Salary  (Perfect-attendance bonus)
+//   0 days off  -> Salary = Monthly Salary + Daily Salary  (perfect-attendance bonus)
+//   1 day off   -> Salary = Monthly Salary                 (one free day: no bonus, no deduction)
+//   N days off (N >= 2) -> Salary = Monthly Salary − (N − 1) × Daily Salary
 //
-//   If Leave Days > 0:
-//       Salary = Monthly Salary − (Leave Days × Daily Salary)
+//   All money is rounded to whole rupees: 0.5 or more rounds up, below 0.5 rounds down.
 //
 // Example:
 //   30,000 salary -> Daily = 1,000
 //   0 leaves -> 31,000
-//   1 leave  -> 29,000
-//   2 leaves -> 28,000
-//   3 leaves -> 27,000
+//   1 leave  -> 30,000
+//   2 leaves -> 29,000
+//   3 leaves -> 28,000
 
 export const DEFAULT_WORKING_DAYS_BASIS = 30;
+export const FREE_DAYS_PER_MONTH = 1;
+
+// round(n / d) for non-negative integers, halves rounded up
+const roundDiv = (n, d) => Math.floor((2 * n + d) / (2 * d));
 
 /**
  * Calculates daily salary given monthly salary and working-day basis.
@@ -27,9 +31,9 @@ export const DEFAULT_WORKING_DAYS_BASIS = 30;
  * @returns {number}
  */
 export function calculateDailySalary(monthlySalary = 0, workingDaysBasis = DEFAULT_WORKING_DAYS_BASIS) {
-  const salary = Number(monthlySalary) || 0;
-  const basis = Number(workingDaysBasis) > 0 ? Number(workingDaysBasis) : 30;
-  return Math.round((salary / basis) * 100) / 100;
+  const salary = Math.round(Math.max(0, Number(monthlySalary) || 0));
+  const basis = Number(workingDaysBasis) > 0 ? Math.round(Number(workingDaysBasis)) : 30;
+  return roundDiv(salary, basis);
 }
 
 /**
@@ -54,27 +58,32 @@ export function calculateEmployeeSalary({
   advance = 0,
   overtime = 0,
 }) {
-  const baseSalary = Math.max(0, Number(monthlySalary) || 0);
-  const leaves = Math.max(0, Number(leaveDays) || 0);
-  const absents = Math.max(0, Number(absentDays) || 0);
+  const baseSalary = Math.round(Math.max(0, Number(monthlySalary) || 0));
+  const leaves = Math.max(0, Math.round(Number(leaveDays) || 0));
+  const absents = Math.max(0, Math.round(Number(absentDays) || 0));
   const presents = Math.max(0, Number(presentDays) || 0);
   const adv = Math.max(0, Number(advance) || 0);
   const ot = Math.max(0, Number(overtime) || 0);
+  const basis = Number(workingDaysBasis) > 0 ? Math.round(Number(workingDaysBasis)) : 30;
 
-  const dailySalary = calculateDailySalary(baseSalary, workingDaysBasis);
+  const dailySalary = roundDiv(baseSalary, basis);
 
-  // Perfect-attendance bonus rule:
-  // If Leave Days = 0 (and no unapproved absents):
-  //   Bonus = +1 Daily Salary
-  const isPerfectAttendance = leaves === 0 && absents === 0;
+  // Perfect attendance (no leave, no absent): bonus = +1 daily salary.
+  const totalOff = leaves + absents;
+  const isPerfectAttendance = totalOff === 0;
   const bonus = isPerfectAttendance ? dailySalary : 0;
 
-  // Deduction rule:
-  // If Leave Days > 0 (or absents):
-  //   Deduction = Leave Days × Daily Salary (+ Absent Days × Daily Salary)
-  const leaveDeduction = leaves * dailySalary;
-  const absentDeduction = absents * dailySalary;
-  const totalAttendanceDeduction = leaveDeduction + absentDeduction;
+  // One day off per month is free. The free day is used on a leave day first, then on an absent day.
+  const freeFromLeave = Math.min(leaves, FREE_DAYS_PER_MONTH);
+  const freeFromAbsent = Math.min(absents, FREE_DAYS_PER_MONTH - freeFromLeave);
+  const deductibleLeaves = leaves - freeFromLeave;
+  const deductibleAbsents = absents - freeFromAbsent;
+  const deductibleDays = deductibleLeaves + deductibleAbsents;
+
+  // Total is rounded once from the exact fraction (same as the database function).
+  const totalAttendanceDeduction = Math.min(roundDiv(deductibleDays * baseSalary, basis), baseSalary);
+  const leaveDeduction = Math.min(roundDiv(deductibleLeaves * baseSalary, basis), totalAttendanceDeduction);
+  const absentDeduction = totalAttendanceDeduction - leaveDeduction;
 
   // Calculated gross salary: Monthly Salary + Bonus - Attendance Deductions
   const attendanceAdjustedSalary = baseSalary + bonus - totalAttendanceDeduction;
@@ -98,9 +107,13 @@ export function calculateEmployeeSalary({
     overtime: ot,
     attendanceAdjustedSalary,
     netSalary,
+    freeDayUsed: totalOff > 0,
+    deductibleDays,
     ruleSummary: isPerfectAttendance
       ? `0 leaves -> Perfect Attendance Bonus (+PKR ${dailySalary.toLocaleString('en-PK')})`
-      : `${leaves} leave(s) -> Deduction (-PKR ${leaveDeduction.toLocaleString('en-PK')})`,
+      : deductibleDays === 0
+        ? `${totalOff} day off -> Free day (no deduction)`
+        : `${totalOff} days off -> 1 free day, ${deductibleDays} deducted (-PKR ${totalAttendanceDeduction.toLocaleString('en-PK')})`,
   };
 }
 

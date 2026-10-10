@@ -653,8 +653,8 @@ export default function PayrollPage({ notify }) {
 
       {/* TAB 2: PAYMENT HISTORY LEDGER (MODULE 9) */}
       {activeTab === 'payments' && (
-        <div className="att-main-card card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div className="att-main-card card" style={{ padding: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
             <div>
               <h3 style={{ margin: 0, fontSize: '1.15rem' }}>Immutable Payment Ledger</h3>
               <p style={{ margin: '3px 0 0 0', color: 'var(--muted)', fontSize: 13 }}>
@@ -671,7 +671,7 @@ export default function PayrollPage({ notify }) {
             </div>
           </div>
 
-          <div className="table-wrap desktop-table-only">
+          <div className="table-wrap desktop-table-only" style={{ overflowX: 'auto' }}>
             <table className="att-history-log-table">
               <thead>
                 <tr>

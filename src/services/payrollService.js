@@ -25,6 +25,7 @@ const PAYROLL_MESSAGES = {
   REFERENCE_REQUIRED: 'A payment reference is required for non-cash payments.',
   INVALID_AMOUNT: 'Enter a valid amount greater than zero (up to 2 decimal places).',
   INVALID_PAYMENT_DATE: 'The payment date cannot be in the future or before the payroll month.',
+  MONTH_NOT_ENDED: 'Payroll can only be finalized after the month has ended. Attendance stays open until then.',
   PAYROLL_FINALIZED_LOCKED: 'Payroll for this month has been finalized and locked. Attendance cannot be modified directly without an approved manager recalculation override.',
 };
 
@@ -114,10 +115,10 @@ export function createDemoPayrollApi() {
     // 0 leaves for first 2 attendants (Bonus test), 1 leave for 3rd, 2 leaves for 4th
     const leaveDays = i === 0 || i === 1 ? 0 : i === 2 ? 1 : i === 3 ? 2 : 0;
     const absentDays = 0;
-    const deductibleDays = leaveDays + absentDays;
-    const presentDays = 30 - deductibleDays;
+    const daysOff = leaveDays + absentDays;
+    const presentDays = 30 - daysOff;
 
-    const calc = calculatePayroll(emp.monthlySalary, deductibleDays, { daysBasis: 30, bonusAllowed: true });
+    const calc = calculatePayroll(emp.monthlySalary, daysOff, { daysBasis: 30, bonusAllowed: true });
     return {
       id: `pr-${emp.id}-${defaultYear}-${defaultMonth}`,
       employeeId: emp.id,
@@ -133,7 +134,7 @@ export function createDemoPayrollApi() {
       absentDays,
       leaveDays,
       unmarkedDays: 0,
-      deductibleDays,
+      deductibleDays: calc.deductibleDays, // days actually deducted (1st day off is free)
       deduction: calc.deduction,
       bonus: calc.bonus,
       bonusWithheldReason: null,
@@ -429,7 +430,8 @@ export function createDemoPayrollApi() {
       if (idx < 0) throw new InventoryError('PAYROLL_NOT_FOUND', PAYROLL_MESSAGES.PAYROLL_NOT_FOUND);
 
       const rec = rows[idx];
-      const calc = calculatePayroll(rec.monthlySalary, rec.deductibleDays, { daysBasis: store.settings.daysBasis, bonusAllowed: store.settings.bonusEnabled });
+      const calc = calculatePayroll(rec.monthlySalary, (rec.leaveDays || 0) + (rec.absentDays || 0), { daysBasis: store.settings.daysBasis, bonusAllowed: store.settings.bonusEnabled });
+      rec.deductibleDays = calc.deductibleDays;
       
       const oldVals = { finalSalary: rec.finalSalary, balance: rec.balance };
       rec.finalSalary = calc.finalSalary;
@@ -672,4 +674,3 @@ export function createPayrollApi(client = supabase) {
 }
 
 export const payrollApi = createPayrollApi();
-
