@@ -59,11 +59,12 @@ export const PERIOD_OPTIONS = Object.freeze([
   { value: 'custom', label: 'Custom' },
 ]);
  
-// Daily = today, Weekly = Monday -> today, Monthly = 1st -> today (same presets as Expenses / Other income).
+// Daily = today, Weekly = the last 7 days (today and the 6 days before; a calendar week would be nearly empty
+// early in the week, e.g. on a Monday), Monthly = 1st -> today.
 // Custom keeps whatever dates were picked; an empty side means "no limit".
 export function resolvePeriodRange(period, todayISO = getKarachiTodayISO(), custom = {}) {
   if (period === 'daily') return { start: todayISO, end: todayISO };
-  if (period === 'weekly') return { start: getKarachiWeekStartISO(todayISO), end: todayISO };
+  if (period === 'weekly') return { start: addDaysISO(todayISO, -6), end: todayISO };
   if (period === 'monthly') return { start: getKarachiMonthStartISO(todayISO), end: todayISO };
   return { start: custom.start || '', end: custom.end || '' };
 }

@@ -118,7 +118,8 @@ test('slot helpers', () => {
 
 test('period presets and instants', () => {
   assert.deepEqual(resolvePeriodRange('daily', '2026-10-10'), { start: '2026-10-10', end: '2026-10-10' });
-  assert.deepEqual(resolvePeriodRange('weekly', '2026-10-10'), { start: '2026-10-05', end: '2026-10-10' });
+  assert.deepEqual(resolvePeriodRange('weekly', '2026-10-10'), { start: '2026-10-04', end: '2026-10-10' });
+  assert.deepEqual(resolvePeriodRange('weekly', '2026-10-12'), { start: '2026-10-06', end: '2026-10-12' }); // Monday still shows 7 days
   assert.deepEqual(resolvePeriodRange('monthly', '2026-10-10'), { start: '2026-10-01', end: '2026-10-10' });
   assert.deepEqual(resolvePeriodRange('custom', '2026-10-10', { start: '2026-09-01', end: '2026-09-15' }), { start: '2026-09-01', end: '2026-09-15' });
   const { from, to } = rangeToInstants({ start: '2026-10-10', end: '2026-10-10' });
