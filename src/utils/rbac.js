@@ -36,4 +36,34 @@ export function filterNavForRole(role, navItems) {
   return navItems.filter((n) => canAccessPage(role, n.id));
 }
 
+// ---------------------------------------------------------------------------------------------
+// Shift scope (Attendance + Employees & salaries)
+//
+//   owner / admin  -> { scoped: false }: every employee, every shift, including General (no shift)
+//   manager        -> { scoped: true, shiftId, shiftName }: only employees of their own shift
+//   anyone else    -> scoped with no shift: sees nothing
+//
+// The database enforces the same rule (employee_scope_ok / RLS, see
+// database/migration_rbac_shift_scope.sql); these helpers keep the screens honest too, and they
+// FAIL CLOSED: a manager without an assigned shift, or an entry without a shift id, is never shown.
+// ---------------------------------------------------------------------------------------------
+export function buildShiftScope({ role = null, shiftId = null, shiftName = null } = {}) {
+  if (isOwnerRole(role)) return { role, scoped: false, shiftId: null, shiftName: null };
+  return { role, scoped: true, shiftId: shiftId || null, shiftName: shiftName || null };
+}
+
+// Is an employee-like entry ({ shiftId }) inside `scope`?
+export function employeeInScope(scope, entry = {}) {
+  if (!scope || !scope.scoped) return true;
+  if (!scope.shiftId) return false;
+  const id = entry.shiftId ?? entry.shift_id ?? null;
+  return Boolean(id) && String(id) === String(scope.shiftId);
+}
+
+// Generic list filter: owner / admin get the list back untouched (same reference).
+export function filterByShiftScope(scope, items, pick = (x) => x) {
+  if (!scope || !scope.scoped) return items || [];
+  return (items || []).filter((x) => employeeInScope(scope, pick(x) || {}));
+}
+
 export { OWNER_ONLY_PAGES };

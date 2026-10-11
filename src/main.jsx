@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { createRoot } from "react-dom/client";
 
 // Register the PWA service worker only for production builds. This adds installation
@@ -34,13 +34,11 @@ import {
   CalendarDays,
   Banknote,
   Droplets,
-  Gauge,
   TrendingUp,
   ArrowDownRight,
   Sun,
   Moon,
   Ruler,
-  Link2,
   Sparkles,
   LockKeyhole,
   CalendarCheck,
@@ -53,10 +51,12 @@ import SettingsPage from "./SettingsPage";
 import IncomePage from "./IncomePage";
 import TanksPage from "./components/tanks/TanksPage";
 import ShiftClosingModal from "./components/tanks/ShiftClosingModal";
+import ShiftClosingPage from "./components/shifts/ShiftClosingPage";
 import OwnerKPIs from "./components/dashboard/OwnerKPIs";
 import Dropdown from "./components/common/Dropdown";
 import FlowAIAgent from "./components/dashboard/FlowAIAgent";
 import FuelForecast from "./components/dashboard/FuelForecast";
+import SalesOverviewChart from "./components/dashboard/SalesOverviewChart";
 import FuelPricesCard from "./components/tanks/FuelPricesCard";
 import DeliveryOrderModal from "./components/dashboard/DeliveryOrderModal";
 import { TankDataProvider, useTanks } from "./hooks/useTanks";
@@ -67,7 +67,7 @@ import { isSupabaseConfigured } from "./lib/supabaseClient";
 import { NotificationProvider, useNotifications } from "./hooks/useNotifications";
 import { useAvatarUrl } from "./hooks/useAvatar";
 import { LanguageProvider, useLanguage } from "./context/LanguageContext";
-import { pctChange, formatPct, buildChart, buildPeriodSeries } from "./utils/salesMetrics";
+import { pctChange, formatPct, buildCustomKpis } from "./utils/salesMetrics";
 import { formatPKR, formatLiters as formatLitres } from "./utils/formatters";
 import {
   KARACHI_TIME_ZONE,
@@ -143,7 +143,6 @@ export function filterExpenses(
 }
 const initialToday = getKarachiTodayISO();
 const money = (n) => `PKR ${n.toLocaleString("en-PK")}`;
-const liters = (n) => `${n.toLocaleString("en-PK")} L`;
 
 function App() {
   const { t, lang } = useLanguage();
@@ -495,6 +494,12 @@ function Overview({ setModal, income = [], expenses = [], today, notify }) {
   }, [reloadPricing]);
 
   const [period, setPeriod] = useState("daily");
+  // Dates picked in the Sales overview "Custom" option ({ start, end }), or null for daily / weekly / monthly.
+  const [customRange, setCustomRange] = useState(null);
+  const customKpis = useMemo(
+    () => (canSeeSales && customRange ? buildCustomKpis(sales, income, expenses, customRange) : null),
+    [canSeeSales, customRange, sales, income, expenses],
+  );
   const [now, setNow] = useState(() => new Date());
   const [deliveryOrderTank, setDeliveryOrderTank] = useState(null);
 
@@ -547,6 +552,7 @@ function Overview({ setModal, income = [], expenses = [], today, notify }) {
         income={income}
         expenses={expenses}
         period={period}
+        customKpis={customKpis}
         canSeeSales={canSeeSales}
         t={t}
       />
@@ -555,9 +561,12 @@ function Overview({ setModal, income = [], expenses = [], today, notify }) {
       <div className="dashboard-grid">
         <SalesOverviewChart
           sales={sales}
+          income={income}
+          expenses={expenses}
           canSeeSales={canSeeSales}
           period={period}
           setPeriod={setPeriod}
+          onCustomRangeChange={setCustomRange}
         />
         <FuelForecast
           tanks={tanks}
@@ -624,7 +633,7 @@ function Page({
 
   if (page === "station")
     return <TanksPage setModal={setModal} notify={notify} />;
-  if (page === "shifts") return <ShiftPage setModal={setModal} />;
+  if (page === "shifts") return <ShiftClosingPage />;
   if (page === "attendance")
     return <AttendancePage notify={notify} onNavigate={onNavigate} />;
   if (page === "payroll")
@@ -912,272 +921,6 @@ function PageHeading({ Icon, title, desc, button, onClick }) {
     </div>
   );
 }
-function ShiftPage({ setModal }) {
-  const { api, tanks, overview, reload, refreshAll, userName, session } = useTanks();
-  const { t } = useLanguage();
-  const [shiftDialog, setShiftDialog] = useState(false);
-  const [dbRows, setDbRows] = useState(null);
-  const perms = overview ? overview.permissions : {};
-  const userRole = overview?.viewer?.role || 'owner';
-  const isAdminOrOwner = userRole === 'owner' || userRole === 'admin';
-  const isManager = !isAdminOrOwner;
-
-  const loadReconciliation = useCallback(() => {
-    if (api?.getShiftReconciliation) {
-      api.getShiftReconciliation().then((res) => {
-        if (res && res.length) setDbRows(res);
-      }).catch(() => { });
-    }
-  }, [api]);
-
-  useEffect(() => {
-    loadReconciliation();
-  }, [loadReconciliation]);
-
-  const liveTotalStock = (tanks || []).reduce((sum, t) => sum + (Number(t.currentStock) || 0), 0);
-  const liveDispensed = (tanks || []).reduce((sum, t) => sum + (Number(t.todayDispensed) || 0), 0);
-  const activeShiftNum = (Number(overview?.openShift?.shiftNumber || 1) % 2 === 0) ? 2 : 1;
-  const activeShiftName = activeShiftNum === 1 ? 'Shift 1 - Day' : 'Shift 2 - Night';
-  const activeHours = activeShiftNum === 1 ? '07:00 - 19:00' : '19:00 - 07:00';
-  const dynamicStaff = activeShiftNum === 1 ? 'Fahad Iqbal' : 'Hamza Raza';
-  const activeShiftRow = overview?.openShift ? [
-    activeShiftName,
-    userName || dynamicStaff,
-    activeHours,
-    liveTotalStock + liveDispensed,
-    0,
-    liveTotalStock + liveDispensed,
-    liveDispensed,
-    liveTotalStock,
-    "Open",
-    session?.user?.id
-  ] : null;
-
-  const rows = (dbRows && dbRows.length > 0)
-    ? dbRows
-    : (activeShiftRow ? [activeShiftRow] : []);
-
-  const displayedRows = isManager
-    ? rows.filter(r => {
-      const person = String(r[1] || '').toLowerCase();
-      const me = String(userName || '').toLowerCase();
-      const closedBy = r[9];
-      const isCurrentOpen = r[8] === 'Open';
-      const matchesUser = (closedBy && session?.user?.id && closedBy === session.user.id) ||
-        (me && person.includes(me)) ||
-        (me && person.includes(me.split(' ')[0]));
-      return isCurrentOpen || matchesUser;
-    })
-    : rows;
-
-  return (
-    <>
-      <PageHeading
-        Icon={ReceiptText}
-        title={t("shifts_title", "Shift closing")}
-        desc={t("shifts_page_desc", "Close a shift with stock movement and 12-hour sales")}
-        button={t("close_shift", "Close shift")}
-        onClick={() => setShiftDialog(true)}
-      />
-      <div className="shift-flow">
-        <div>
-          <span>Shift 1 closing</span>
-          <strong>-&gt; Shift 2 opening</strong>
-        </div>
-        <Link2 size={18} />
-        <div>
-          <span>Shift 2 closing</span>
-          <strong>-&gt; next Shift 1 opening</strong>
-        </div>
-      </div>
-      <div className="card table-card shift-table">
-        <div className="card-head">
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-              <h2>{isManager ? t("my_shift_reconciliation", "My Shift Reconciliation") : t("shift_stock_reconciliation", "12-hour stock reconciliation")}</h2>
-              <span className={`status ${isAdminOrOwner ? 'success' : 'info'}`} style={{ fontSize: '11px', padding: '2px 8px' }}>
-                {isAdminOrOwner ? "Admin / Owner: All Shifts" : `Manager: ${userName}`}
-              </span>
-            </div>
-            <p>
-              {isManager
-                ? "Filtered to shifts assigned to or closed by you, plus active shift on duty."
-                : "Continuous 12-hour stock reconciliation ledger across Day and Night shifts."}
-            </p>
-          </div>
-        </div>
-        <div className="table-wrap desktop-table-only">
-          <table>
-            <thead>
-              <tr>
-                {[
-                  "Shift",
-                  "Assigned to",
-                  "Hours",
-                  "Opening stock",
-                  "Purchases",
-                  "Total stock",
-                  "12-hour sales",
-                  "Closing stock",
-                  "Gain / loss",
-                  "Status",
-                ].map((h) => (
-                  <th key={h}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {displayedRows.map((r, idx) => {
-                const [
-                  name,
-                  person,
-                  hours,
-                  opening,
-                  purchases,
-                  total,
-                  sales,
-                  closing,
-                  status,
-                ] = r;
-                const variance = closing - (total - sales);
-                return (
-                  <tr key={`${name}-${idx}`}>
-                    <td>
-                      <strong className="row-title">{name}</strong>
-                    </td>
-                    <td>{person}</td>
-                    <td>{hours}</td>
-                    <td>{liters(opening)}</td>
-                    <td>{liters(purchases)}</td>
-                    <td>{liters(total)}</td>
-                    <td>{liters(sales)}</td>
-                    <td>
-                      <strong>{liters(closing)}</strong>
-                    </td>
-                    <td>
-                      <span className="gain-zero">
-                        {variance > 0 ? "+" : ""}
-                        {liters(variance)}
-                      </span>
-                    </td>
-                    <td>
-                      <span
-                        className={
-                          "status " +
-                          (status === "Completed" ? "success" : "warning")
-                        }
-                      >
-                        {status}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {!displayedRows.length && (
-            <p className="empty-state">
-              {isManager
-                ? "No shifts assigned to or closed by your account yet. Use 'Close shift' to record your shift reconciliation."
-                : "No shift closings recorded yet in the database. Use 'Close shift' to record shift closings."}
-            </p>
-          )}
-        </div>
-
-        <div className="mobile-cards-only">
-          {displayedRows.map((r, idx) => {
-            const [
-              name,
-              person,
-              hours,
-              opening,
-              purchases,
-              total,
-              sales,
-              closing,
-              status,
-            ] = r;
-            const variance = closing - (total - sales);
-            return (
-              <div key={`${name}-${idx}`} className="mobile-record-card">
-                <div className="mobile-record-header">
-                  <strong className="row-title">{name}</strong>
-                  <span className={"status " + (status === "Completed" ? "success" : "warning")}>
-                    {status}
-                  </span>
-                </div>
-                <div className="mobile-record-body">
-                  <div className="mobile-record-field">
-                    <span>Assigned to</span>
-                    <b>{person}</b>
-                  </div>
-                  <div className="mobile-record-field">
-                    <span>Hours</span>
-                    <small>{hours}</small>
-                  </div>
-                  <div className="mobile-record-field">
-                    <span>Opening stock</span>
-                    <b>{liters(opening)}</b>
-                  </div>
-                  <div className="mobile-record-field">
-                    <span>Purchases</span>
-                    <b>{liters(purchases)}</b>
-                  </div>
-                  <div className="mobile-record-field">
-                    <span>Total stock</span>
-                    <b>{liters(total)}</b>
-                  </div>
-                  <div className="mobile-record-field">
-                    <span>12-hour sales</span>
-                    <b>{liters(sales)}</b>
-                  </div>
-                  <div className="mobile-record-field">
-                    <span>Closing stock</span>
-                    <strong style={{ color: "var(--amber, #0284c7)" }}>{liters(closing)}</strong>
-                  </div>
-                  <div className="mobile-record-field">
-                    <span>Gain / loss</span>
-                    <span className="gain-zero">
-                      {variance > 0 ? "+" : ""}{liters(variance)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-          {!displayedRows.length && (
-            <p className="empty-state">
-              {isManager
-                ? "No shifts assigned to or closed by your account yet. Use 'Close shift' to record your shift reconciliation."
-                : "No shift closings recorded yet in the database. Use 'Close shift' to record shift closings."}
-            </p>
-          )}
-        </div>
-      </div>
-      <div className="formula-note">
-        <Gauge size={18} />
-        <span>
-          <strong>Opening stock is linked automatically.</strong> A completed
-          Shift 1 closing carries into Shift 2 opening; Shift 2 closing carries
-          into the next Shift 1 opening.{dbRows && dbRows.length ? " Reconciled shift records loaded from database." : " Current shift snapshot shown above."}
-        </span>
-      </div>
-      {shiftDialog && (
-        <ShiftClosingModal
-          tanks={tanks ?? []}
-          openShift={overview?.openShift ?? null}
-          focusTankId={null}
-          api={api}
-          onClose={() => setShiftDialog(false)}
-          onDone={() => { setShiftDialog(false); refreshAll(); loadReconciliation(); }}
-          onRefresh={() => { refreshAll(); loadReconciliation(); }}
-          perms={perms}
-        />
-      )}
-    </>
-  );
-}
-
 function useShiftReminder(onRemind) {
   useEffect(() => {
     let timeout;
@@ -1735,80 +1478,6 @@ function Modal({
         </div>
       </div>
     </div>
-  );
-}
-
-const PERIOD_OPTIONS = [
-  { value: "daily", label: "Daily" },
-  { value: "weekly", label: "Weekly" },
-  { value: "monthly", label: "Monthly" },
-];
-
-function SalesOverviewChart({ sales, canSeeSales, period, setPeriod }) {
-  // Window follows the selected period exactly like the KPI cards (all values come from the database).
-  const win = canSeeSales && sales ? buildPeriodSeries(sales, period) : { rows: [], label: "" };
-  const chart = buildChart(win.rows, Math.max(win.rows.length, 1), { period: "custom" });
-  const isDateLabel = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d);
-
-  return (
-    <section className="card chart-card">
-      <div className="card-head">
-        <div>
-          <h2>Sales overview</h2>
-          <p>
-            {canSeeSales
-              ? chart.empty
-                ? "No fuel sales recorded yet — revenue appears after the first shift closing"
-                : `Fuel sales revenue (PKR) across the station — ${win.label}`
-              : "Sales revenue is visible to owner / admin only"}
-          </p>
-        </div>
-        <Dropdown value={period} onChange={setPeriod} options={PERIOD_OPTIONS} ariaLabel="Sales overview period" />
-      </div>
-      <div className="chart-legend">
-        <span><i className="dot blue" />Revenue</span>
-        <span><i className="dot amber" />Fuel volume (L)</span>
-      </div>
-      <div className="chart">
-        <div className="y-labels">
-          {chart.ticks.map((t, i) => <span key={i} style={{ top: `${i * 25}%` }}>{t}</span>)}
-        </div>
-        <div className="chart-area">
-          <div className="gridlines" />
-          <svg viewBox="0 0 700 230" preserveAspectRatio="none" style={{ top: 4, height: "calc(100% - 30px)" }}>
-            <defs>
-              <linearGradient id="flow-chart-gradient" x1="0" x2="0" y1="0" y2="1">
-                <stop offset="0" stopColor="#2d75df" stopOpacity=".35" />
-                <stop offset=".72" stopColor="#ffb41f" stopOpacity=".16" />
-                <stop offset="1" stopColor="#ffb41f" stopOpacity=".03" />
-              </linearGradient>
-            </defs>
-            {chart.revenueArea && <path className="chart-fill" d={chart.revenueArea} />}
-            {chart.revenuePath && <path className="chart-stroke" d={chart.revenuePath} />}
-            {chart.litresPath && <path className="chart-line-litres" d={chart.litresPath} />}
-          </svg>
-          <div className="x-labels">
-            {chart.xLabels.map((d, i) => {
-              const pos = chart.xLabelPos[i];
-              return (
-                <span
-                  key={d}
-                  style={{
-                    left: `${pos * 100}%`,
-                    transform: `translateX(${pos <= 0 ? "0" : pos >= 1 ? "-100%" : "-50%"})`,
-                  }}
-                >
-                  {isDateLabel(d) ? formatKarachiDate(new Date(`${d}T12:00:00+05:00`), { year: undefined }) : d}
-                </span>
-              );
-            })}
-          </div>
-        </div>
-        <div className="y-labels y-labels-right">
-          {chart.ticksLit.map((t, i) => <span key={i} style={{ top: `${i * 25}%` }}>{t}</span>)}
-        </div>
-      </div>
-    </section>
   );
 }
 

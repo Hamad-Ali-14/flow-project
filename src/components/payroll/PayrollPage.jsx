@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useViewerScope } from '../../hooks/useViewerScope';
+import { scopePayrollData, scopeByPayrollRows, attachShiftFromRoster } from '../../utils/payrollScope';
+import { useTanks } from '../../hooks/useTanks';
 import {
   Banknote,
   Calendar,
@@ -47,6 +50,8 @@ const formatBalance = (n) => {
 };
 
 export default function PayrollPage({ notify }) {
+  const viewerScope = useViewerScope();
+  const { api } = useTanks();
   const { t } = useLanguage();
 
   // Active view tab: 'register' (Modules 7 & 8) | 'payments' (Module 9 Ledger)
@@ -87,19 +92,27 @@ export default function PayrollPage({ notify }) {
 
   // Load Payroll Data
   const loadPayroll = useCallback(async () => {
+    // Shift managers only ever see their own shift: wait until we know which one (fail closed).
+    if (!viewerScope.ready) return;
     setLoading(true);
     try {
-      const data = await payrollApi.list(selectedMonth, selectedYear);
+      // RBAC: owner / admin get everything; a manager gets only their shift's rows with totals recomputed
+      // from those rows (the database applies the same rule, this keeps the screen honest too).
+      let listed = await payrollApi.list(selectedMonth, selectedYear);
+      if (viewerScope.scoped && api?.getStaffRoster) {
+        listed = attachShiftFromRoster(listed, await api.getStaffRoster());
+      }
+      const data = scopePayrollData(viewerScope, listed);
       setPayrollData(data || { rows: [], summary: {} });
 
-      // Also load payment ledger
+      // Also load payment ledger (only payments of visible payroll rows)
       const payments = await payrollApi.paymentHistory({ month: selectedMonth, year: selectedYear });
-      setPaymentHistoryList(payments || []);
+      setPaymentHistoryList(scopeByPayrollRows(viewerScope, payments, data?.rows || []));
 
       // Also load audit log count (Module 11)
       try {
         const auditLogs = await payrollApi.getAuditSummary(50);
-        setAuditCount(auditLogs?.length || 0);
+        setAuditCount(scopeByPayrollRows(viewerScope, auditLogs, data?.rows || []).length);
       } catch (e) {
         // Non-fatal
       }
@@ -109,7 +122,7 @@ export default function PayrollPage({ notify }) {
     } finally {
       setLoading(false);
     }
-  }, [selectedMonth, selectedYear, notify]);
+  }, [selectedMonth, selectedYear, notify, viewerScope, api]);
 
   useEffect(() => {
     loadPayroll();
@@ -799,6 +812,8 @@ export default function PayrollPage({ notify }) {
       {auditTrailOpen && (
         <PayrollAuditTrailModal
           onClose={() => setAuditTrailOpen(false)}
+          scope={viewerScope}
+          scopeRows={payrollData.rows}
         />
       )}
     </div>

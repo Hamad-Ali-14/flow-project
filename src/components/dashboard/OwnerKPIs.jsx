@@ -20,6 +20,7 @@ import {
   get_net_profit,
 } from '../../utils/flowAiTools';
 import { formatPKR, formatLiters } from '../../utils/formatters';
+import { formatPct } from '../../utils/salesMetrics';
 
 export default function OwnerKPIs({
   sales,
@@ -27,6 +28,8 @@ export default function OwnerKPIs({
   income = [],
   expenses = [],
   period = 'daily',
+  // Values for the Sales overview "Custom" date range (from buildCustomKpis); null for daily / weekly / monthly.
+  customKpis = null,
   canSeeSales = true,
   t = (k, f) => f,
 }) {
@@ -143,7 +146,19 @@ export default function OwnerKPIs({
     ? t('shift_in_progress', 'Shift in progress')
     : `vs. ${periodLabel}`;
 
-  const kpis = [
+  // Custom date range: every card shows the selected dates instead of the last real period.
+  const cc = customKpis;
+  const cDelta = (v) => ({ hasDelta: v !== null && v !== undefined, delta: v === null || v === undefined ? '' : formatPct(v) });
+  const customCards = cc ? [
+    { id: 'sales', name: t('fuel_sales', 'Fuel Sales'), value: formatPKR(cc.fuelSales), ...cDelta(cc.change.fuelSales), isPositive: (cc.change.fuelSales ?? 0) >= 0, context: cc.compareLabel, Icon: TrendingUp, iconClass: 'icon-0' },
+    { id: 'volume', name: t('fuel_volume', 'Fuel Volume'), value: formatLiters(cc.litres), ...cDelta(cc.change.litres), isPositive: (cc.change.litres ?? 0) >= 0, context: cc.compareLabel, Icon: Droplets, iconClass: 'icon-1' },
+    { id: 'income', name: t('other_income', 'Other Income'), value: formatPKR(cc.otherIncome), ...cDelta(cc.change.otherIncome), isPositive: (cc.change.otherIncome ?? 0) >= 0, context: cc.compareLabel, Icon: Banknote, iconClass: 'icon-2' },
+    // For expenses: a negative % is good (saved money)
+    { id: 'expenses', name: t('expenses', 'Expenses'), value: formatPKR(cc.expenses), ...cDelta(cc.change.expenses), isPositive: (cc.change.expenses ?? 0) <= 0, context: cc.compareLabel, Icon: WalletCards, iconClass: 'icon-3' },
+    { id: 'profit', name: t('net_profit', 'Net Profit'), value: formatPKR(cc.netProfit), ...cDelta(cc.change.netProfit), isPositive: (cc.change.netProfit ?? 0) >= 0, context: `Margin: ${cc.margin === null ? 'n/a' : `${cc.margin.toFixed(1)}%`}`, Icon: CircleDollarSign, iconClass: 'icon-4' },
+  ] : null;
+
+  const kpis = customCards || [
     {
       id: 'sales',
       name: period === 'daily' ? t('todays_sales', "Today's Sales") : t('fuel_sales', 'Fuel Sales'),

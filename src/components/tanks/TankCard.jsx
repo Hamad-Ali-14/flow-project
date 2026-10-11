@@ -27,7 +27,6 @@ export default function TankCard({
   const pct = Number(tank?.percentage || 0);
   const activeNozzles = (tank?.nozzles || []).filter((n) => n && n.active);
   const canAct = Boolean(tank?.active);
-  const hasLinks = canAct && Boolean(perms?.update_dip || perms?.stock_adjustment);
 
   const statusLabelMap = {
     'Active': t('status_active', 'Active'),
@@ -124,45 +123,46 @@ export default function TankCard({
         )}
       </div>
 
-      {canAct && (perms.receive_fuel || perms.view_history) && (
-        <div className="tank-actions">
+      {canAct && (perms.receive_fuel || perms.view_history || perms.update_dip || perms.stock_adjustment || (perms.update_dip && onVerify)) && (
+        <div className="tank-card-actions">
+          {/* 1. Top action: full-width primary */}
           {perms.receive_fuel && (
             <button
-              className="button primary small"
+              type="button"
+              className="tank-btn tank-btn-primary tank-btn-block"
               onClick={() => onReceive(tank)}
             >
-              <Plus size={15} /> {t('receive_fuel', 'Receive Fuel')}
+              <Plus size={15} /> {t('tank_btn_receive', 'Receive Fuel')}
             </button>
           )}
-          {perms.view_history && (
-            <button
-              className="button secondary small"
-              onClick={() => onHistory(tank)}
-            >
-              <History size={15} /> {t('view_history', 'View History')}
+
+          {/* 2. Middle row: three equal-width actions on one line */}
+          {(perms.view_history || perms.update_dip || perms.stock_adjustment) && (
+            <div className="tank-btn-row">
+              {perms.view_history && (
+                <button type="button" className="tank-btn" onClick={() => onHistory(tank)}>
+                  <History size={14} /> <span>{t('tank_btn_history', 'View History')}</span>
+                </button>
+              )}
+              {perms.update_dip && (
+                <button type="button" className="tank-btn" onClick={() => onDip(tank)}>
+                  <Ruler size={14} /> <span>{t('tank_btn_dip', 'Update Dip')}</span>
+                </button>
+              )}
+              {perms.stock_adjustment && (
+                <button type="button" className="tank-btn" onClick={() => onAdjust(tank)}>
+                  <Scale size={14} /> <span>{t('tank_btn_adjust', 'Adjust Stock')}</span>
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* 3. Bottom action: full-width, same size as the primary button */}
+          {perms.update_dip && onVerify && (
+            <button type="button" className="tank-btn tank-btn-block" onClick={() => onVerify(tank)}>
+              <Camera size={15} /> {t('tank_btn_verify', 'Dip Verification')}
             </button>
           )}
-        </div>
-      )}
-      {hasLinks && (
-        <div className="tank-links">
-          {perms.update_dip && (
-            <button type="button" onClick={() => onDip(tank)}>
-              <Ruler size={13} /> {t('update_dip', 'Update dip')}
-            </button>
-          )}
-          {perms.stock_adjustment && (
-            <button type="button" onClick={() => onAdjust(tank)}>
-              <Scale size={13} /> {t('adjust_stock', 'Adjust stock')}
-            </button>
-          )}
-        </div>
-      )}
-      {canAct && perms?.update_dip && onVerify && (
-        <div className="tank-verify">
-          <button type="button" className="button secondary small" onClick={() => onVerify(tank)}>
-            <Camera size={15} /> {t('dip_verification', 'Dip Verification')}
-          </button>
         </div>
       )}
     </div>

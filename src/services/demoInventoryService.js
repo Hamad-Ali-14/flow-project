@@ -5,6 +5,7 @@
 import { inventoryError } from './inventoryErrors';
 import { getKarachiTodayISO, addDaysISO, getKarachiWeekStartISO, getKarachiMonthStartISO } from '../dateUtils';
 import { calculateDispensedLiters, calculateSaleAmount, checkStockBounds, roundLiters } from '../utils/inventoryCalculations';
+import { attachMeterReadings, buildShiftLedger, rangeToInstants, shiftSlotFromName } from '../utils/shiftReconciliation';
 
 const delay = (ms = 280) => new Promise(resolve => setTimeout(resolve, ms));
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -13,12 +14,20 @@ const nozzleOrder = (a, b) => Number(a.number) - Number(b.number);
 
 export function createDemoInventory() {
   const DEMO_USER = 'Demo user';
+  // Optional, development only: VITE_DEMO_ROLE=manager (+ VITE_DEMO_SHIFT=day|night) previews the app as a
+  // Shift Manager who is limited to their own shift. Default: the owner.
+  const DEMO_ROLE = import.meta.env.VITE_DEMO_ROLE === 'manager' ? 'manager' : 'owner';
+  const DEMO_SHIFT = import.meta.env.VITE_DEMO_SHIFT === 'night'
+    ? { id: 'shift-night', name: 'Shift 2 - Night' }
+    : { id: 'shift-day', name: 'Shift 1 - Day' };
+  const DEMO_VIEWER_NAME = DEMO_ROLE === 'owner' ? 'Daud' : (DEMO_SHIFT.id === 'shift-night' ? 'Night Manager' : 'Morning Manager');
   const DEMO_SESSION = { email: 'demo@flow.local', name: 'Daud' };
   const listeners = new Set();
   let signedOut = false; // demo sign-out really signs out; signing back in needs no credentials
   let seq = 0;
-  let shiftNumber = 1;
-  let openShiftId = 'demo-shift-1';
+  // The demo station starts with a completed Shift 1 (Day) and a running Shift 2 (Night).
+  let shiftNumber = 2;
+  let openShiftId = 'demo-shift-2';
   let openedAt = new Date().toISOString();
 
   const demoToday = getKarachiTodayISO();
@@ -82,25 +91,29 @@ export function createDemoInventory() {
     },
   ];
 
+  // Same people as the real station: one Shift Supervisor per shift, attendants, a cashier and a cleaner.
   const demoEmployeesList = [
-    ['Fahad Iqbal', 'Station manager', 'Shift 1 - Day', 'Active', 'PKR 65,000'],
-    ['Hamza Raza', 'Shift supervisor', 'Shift 2 - Night', 'Active', 'PKR 55,000'],
+    ['Bilal Ahmed', 'Shift Supervisor', 'Shift 1 - Day', 'Active', 'PKR 55,000'],
+    ['Fahad Iqbal', 'Pump attendant', 'Shift 2 - Night', 'Active', 'PKR 40,000'],
+    ['Hamza Raza', 'Senior Cashier', 'Shift 1 - Day', 'Active', 'PKR 42,000'],
     ['Imran Shah', 'Pump attendant', 'Shift 1 - Day', 'Active', 'PKR 38,000'],
     ['Noman Tariq', 'Pump attendant', 'Shift 2 - Night', 'Active', 'PKR 37,000'],
-    ['Rizwan Ahmed', 'Cleaner', 'General', 'Active', 'PKR 30,000'],
+    ['Rizwan Ahmed', 'Station Cleaner', 'Shift 1 - Day', 'Active', 'PKR 30,000'],
+    ['Usman Ali', 'Shift Supervisor', 'Shift 2 - Night', 'Active', 'PKR 55,000'],
   ];
 
   // Seeded demo attendance register for the current month
   const demoAttendanceRecords = (() => {
     const list = [];
     const staffMeta = [
-      { id: 'demo-emp-1', name: 'Fahad Iqbal', designation: 'Station manager', shift: 'Shift 1 - Day', salary: 65000, leaves: [4] },
-      { id: 'demo-emp-2', name: 'Hamza Raza', designation: 'Shift supervisor', shift: 'Shift 2 - Night', salary: 55000, leaves: [2, 6] },
-      { id: 'demo-emp-3', name: 'Imran Shah', designation: 'Pump attendant', shift: 'Shift 1 - Day', salary: 38000, leaves: [] }, // Perfect attendance!
-      { id: 'demo-emp-4', name: 'Noman Tariq', designation: 'Pump attendant', shift: 'Shift 2 - Night', salary: 37000, absents: [5], leaves: [] },
-      { id: 'demo-emp-5', name: 'Rizwan Ahmed', designation: 'Cleaner', shift: 'General', salary: 30000, leaves: [3] },
+      { id: 'demo-emp-1', name: 'Bilal Ahmed', designation: 'Shift Supervisor', shift: 'Shift 1 - Day', salary: 55000, leaves: [] },
+      { id: 'demo-emp-2', name: 'Fahad Iqbal', designation: 'Pump attendant', shift: 'Shift 2 - Night', salary: 40000, leaves: [6] },
+      { id: 'demo-emp-3', name: 'Hamza Raza', designation: 'Senior Cashier', shift: 'Shift 1 - Day', salary: 42000, leaves: [4] },
+      { id: 'demo-emp-4', name: 'Imran Shah', designation: 'Pump attendant', shift: 'Shift 1 - Day', salary: 38000, leaves: [] },
+      { id: 'demo-emp-5', name: 'Noman Tariq', designation: 'Pump attendant', shift: 'Shift 2 - Night', salary: 37000, leaves: [] },
+      { id: 'demo-emp-6', name: 'Rizwan Ahmed', designation: 'Station Cleaner', shift: 'Shift 1 - Day', salary: 30000, absents: [5], leaves: [] },
+      { id: 'demo-emp-7', name: 'Usman Ali', designation: 'Shift Supervisor', shift: 'Shift 2 - Night', salary: 55000, leaves: [] },
     ];
-
     // Seed October 1 to October 8, 2026
     for (let day = 1; day <= 8; day++) {
       const dayStr = String(day).padStart(2, '0');
@@ -171,65 +184,24 @@ export function createDemoInventory() {
     },
   ];
 
-  const getStaffForShift = (num) => {
-    const shiftLabel = num === 1 ? 'Shift 1' : 'Shift 2';
-    const match = demoEmployeesList.find(e => e[2] && e[2].includes(shiftLabel) && e[3] === 'Active');
-    return match ? match[0] : (num === 1 ? 'Fahad Iqbal' : 'Hamza Raza');
-  };
-
-  // Automated 2-shift sequence linking (Shift 1 closing -> Shift 2 opening -> next Day Shift 1 opening)
-  let shiftRecords = [
-    {
-      shiftNumber: 1,
-      name: 'Shift 1 - Day',
-      assignedTo: 'Fahad Iqbal',
-      hours: '07:00 - 19:00',
-      openingStock: 75050,
-      purchases: 0,
-      totalStock: 75050,
-      sales: 6800,
-      closingStock: 68250,
-      status: 'Completed',
-    },
-    {
-      shiftNumber: 2,
-      name: 'Shift 2 - Night',
-      assignedTo: 'Hamza Raza',
-      hours: '19:00 - 07:00',
-      openingStock: 68250, // Shift 1 Closing Stock -> Shift 2 Opening Stock
-      purchases: 0,
-      totalStock: 68250,
-      sales: 0,
-      closingStock: 68250,
-      status: 'Open',
-    },
-  ];
-
-  const recordShiftClosing = ({ closedShiftNumber, dispensed }) => {
-    const closedRec = shiftRecords.find(s => s.shiftNumber === closedShiftNumber && s.status === 'Open') || shiftRecords[0];
-    if (closedRec) {
-      closedRec.status = 'Completed';
-      closedRec.sales = dispensed;
-      closedRec.closingStock = closedRec.totalStock - dispensed;
+  // Shift closings, in the same shape get_shift_ledger_data() returns. Filled in after the demo ledger is
+  // seeded (the timestamps must line up with it); the 12-hour table is derived from this + the ledger.
+  const demoShifts = [];
+  // meter_readings rows (opening = previous_reading, closing = current_reading) per shift and nozzle
+  const demoMeterReadings = [];
+  const recordShiftClosing = ({ closedShiftNumber, closedAt }) => {
+    const running = demoShifts.find(x => x.status === 'open');
+    if (running) {
+      running.status = 'closed';
+      running.closed_at = closedAt;
+      running.closed_by = 'demo-user';
+      running.closedByName = DEMO_VIEWER_NAME;
     }
-    const nextNum = (closedShiftNumber % 2) + 1; // Strict 2-shift cycle: 1 -> 2 -> 1 ...
-    const nextName = nextNum === 1 ? 'Shift 1 - Day' : 'Shift 2 - Night';
-    const nextHours = nextNum === 1 ? '07:00 - 19:00' : '19:00 - 07:00';
-    const newOpening = closedRec ? closedRec.closingStock : 75050;
-
-    shiftRecords.unshift({
-      shiftNumber: nextNum,
-      name: nextName,
-      assignedTo: getStaffForShift(nextNum),
-      hours: nextHours,
-      openingStock: newOpening,
-      purchases: 0,
-      totalStock: newOpening,
-      sales: 0,
-      closingStock: newOpening,
-      status: 'Open',
+    demoShifts.push({
+      id: openShiftId, shift_number: (closedShiftNumber % 2) + 1, business_date: getKarachiTodayISO(new Date(closedAt)),
+      status: 'open', opened_at: closedAt, closed_at: null, closed_by: null, openedByName: DEMO_VIEWER_NAME,
+      opening_cash: 0, closing_cash: 0,
     });
-    if (shiftRecords.length > 10) shiftRecords.pop();
   };
 
   const machines = [
@@ -288,7 +260,7 @@ export function createDemoInventory() {
 
   const transactions = [];
   const dips = [];
-  const post = ({ tank, type, quantity, nozzle = null, shift = null, reference = null, remarks = null, reason = null, approvalNote = null, unitPrice = null, saleAmount = null }) => {
+  const post = ({ tank, type, quantity, nozzle = null, shift = null, shiftClosingId = null, reference = null, remarks = null, reason = null, approvalNote = null, unitPrice = null, saleAmount = null }) => {
     const before = tank.stock;
     const after = roundLiters(before + quantity);
     tank.stock = after;
@@ -296,7 +268,7 @@ export function createDemoInventory() {
       seq: ++seq, id: `demo-tx-${seq}`, tankId: tank.id, createdAt: new Date().toISOString(), type,
       nozzleNumber: nozzle ? nozzle.number : null, nozzleId: nozzle ? nozzle.id : null, shiftNumber: shift,
       quantity, stockBefore: before, stockAfter: after, reference, remarks, reason, approvalNote, userName: DEMO_USER,
-      unitPrice, saleAmount,
+      unitPrice, saleAmount, shiftClosingId,
     });
   };
   tanks.forEach(t => {
@@ -319,6 +291,7 @@ export function createDemoInventory() {
     const tank = tanks.find(t => t.id === s.tankId);
     const nozzle = nozzles.find(n => n.id === s.nozzleId);
     if (nozzle) nozzle.meter = s.meter;
+    demoMeterReadings.push({ shift_closing_id: 'demo-shift-1', nozzle_id: s.nozzleId, previous_reading: s.meter - s.litres, current_reading: s.meter });
     post({
       tank,
       type: 'NOZZLE_SALE',
@@ -331,6 +304,29 @@ export function createDemoInventory() {
       saleAmount: roundLiters(s.litres * s.price),
     });
   });
+
+  // Line the seeded ledger up on a timeline: opening balance -> Shift 1 opens -> its sales -> Shift 1 closes
+  // (= Shift 2 opens). Everything is "a few minutes ago" so it also counts as today.
+  const seedBase = Date.now();
+  const seedAt = ms => new Date(seedBase + ms).toISOString();
+  transactions.filter(x => x.type === 'OPENING_STOCK').forEach(x => { x.createdAt = seedAt(-180000); });
+  transactions.filter(x => x.type === 'NOZZLE_SALE' && x.shiftNumber === 1).forEach(x => {
+    x.createdAt = seedAt(-60000);
+    x.shiftClosingId = 'demo-shift-1';
+  });
+  demoShifts.push(
+    {
+      id: 'demo-shift-1', shift_number: 1, business_date: demoToday, status: 'closed',
+      opened_at: seedAt(-120000), closed_at: seedAt(-60000), closed_by: 'demo-user', closedByName: DEMO_VIEWER_NAME,
+      opening_cash: 0, closing_cash: 0,
+    },
+    {
+      id: openShiftId, shift_number: 2, business_date: demoToday, status: 'open',
+      opened_at: seedAt(-60000), closed_at: null, closed_by: null, openedByName: DEMO_VIEWER_NAME,
+      opening_cash: 0, closing_cash: 0,
+    },
+  );
+  openedAt = seedAt(-60000);
 
   // Seed past 30 days of sales history for charts and period comparison deltas
   const nowMs = Date.now();
@@ -414,8 +410,8 @@ export function createDemoInventory() {
       await delay();
       applyDue();
       return clone({
-        viewer: { id: 'demo-user', name: 'Daud', role: 'owner' },
-        permissions: { view_tanks: true, receive_fuel: true, close_shift: true, update_dip: true, stock_adjustment: true, view_history: true, enter_readings: true, view_sales: true, manage_prices: true },
+        viewer: { id: 'demo-user', name: DEMO_VIEWER_NAME, role: DEMO_ROLE },
+        permissions: { view_tanks: true, receive_fuel: true, close_shift: true, update_dip: true, stock_adjustment: true, view_history: true, enter_readings: true, view_sales: DEMO_ROLE === 'owner', manage_prices: true },
         businessDate: getKarachiTodayISO(),
         openShift: { id: openShiftId, shiftNumber, openedAt },
         machines: clone(machines),
@@ -481,19 +477,20 @@ export function createDemoInventory() {
       let total = 0;
       let revenue = 0;
       for (const { nozzle, closing, dispensed, price } of calc) {
+        demoMeterReadings.push({ shift_closing_id: shiftId, nozzle_id: nozzle.id, previous_reading: nozzle.meter, current_reading: closing });
         nozzle.meter = closing;
         total += dispensed;
         const amount = calculateSaleAmount(dispensed, price);
         revenue += amount;
         // The price in force right now is stored on the sale and never changes afterwards.
-        if (dispensed > 0) post({ tank: tanks.find(t => t.id === nozzle.tankId), type: 'NOZZLE_SALE', quantity: -dispensed, nozzle, shift: closed, reference: `Shift #${closed}`, unitPrice: price, saleAmount: amount });
+        if (dispensed > 0) post({ tank: tanks.find(t => t.id === nozzle.tankId), type: 'NOZZLE_SALE', quantity: -dispensed, nozzle, shift: closed, shiftClosingId: shiftId, reference: `Shift #${closed}`, unitPrice: price, saleAmount: amount });
       }
       // Strict 2-shift cycle: NEVER increment beyond Shift 2. Resets back to Shift 1 - Day.
       const nextShift = (closed % 2) + 1;
       shiftNumber = nextShift;
       openShiftId = `demo-shift-${shiftNumber}-${Date.now()}`;
       openedAt = new Date().toISOString();
-      recordShiftClosing({ closedShiftNumber: closed, dispensed: roundLiters(total) });
+      recordShiftClosing({ closedShiftNumber: closed, closedAt: openedAt });
       return { shiftNumber: closed, totalDispensed: roundLiters(total), totalRevenue: roundLiters(revenue), nextShiftNumber: shiftNumber };
     },
 
@@ -772,19 +769,37 @@ export function createDemoInventory() {
       return { record: clone(target), auditEntry };
     },
 
-    async getShiftReconciliation() {
+    // Which shift is the viewer limited to? (owner -> unscoped)
+    async getViewerScope() {
+      await delay(30);
+      return { role: DEMO_ROLE, shiftId: DEMO_ROLE === 'owner' ? null : DEMO_SHIFT.id, shiftName: DEMO_ROLE === 'owner' ? null : DEMO_SHIFT.name };
+    },
+
+    // Same engine as the live backend: the table is derived from the shifts + the stock ledger.
+    async getShiftReconciliation({ startDate, endDate, includeActive = true } = {}) {
       await delay(100);
-      return shiftRecords.map(s => [
-        s.name,
-        s.assignedTo || getStaffForShift(s.shiftNumber),
-        s.hours,
-        s.openingStock,
-        s.purchases,
-        s.totalStock,
-        s.sales,
-        s.closingStock,
-        s.status,
-      ]);
+      const { from, to } = rangeToInstants({ start: startDate, end: endDate });
+      const picked = demoShifts.filter(x => x.status === 'open'
+        || ((!from || Date.parse(x.closed_at) >= from.getTime()) && (!to || Date.parse(x.opened_at) < to.getTime())));
+      const earliest = Math.min(...picked.map(x => Date.parse(x.opened_at)));
+      const activeIds = new Set(tanks.filter(t => t.active).map(t => t.id));
+      const ledger = transactions
+        .filter(x => activeIds.has(x.tankId) && Date.parse(x.createdAt) >= earliest)
+        .map(x => ({ transaction_type: x.type, quantity_litres: x.quantity, created_at: x.createdAt, shift_closing_id: x.shiftClosingId || null, nozzle_id: x.nozzleId || null, nozzle_number: x.nozzleNumber }));
+      // Assigned person = the Shift Supervisor of that shift (never one fixed name).
+      const supervisors = {};
+      for (const e of demoEmployeesList) {
+        const slot = shiftSlotFromName(e[2]);
+        if (slot && e[3] === 'Active' && /supervisor/i.test(e[1]) && !supervisors[slot]) supervisors[slot] = e[0];
+      }
+      const rows = buildShiftLedger({
+        shifts: clone(picked),
+        transactions: ledger,
+        liveTotal: tanks.filter(t => t.active).reduce((sum, t) => sum + t.stock, 0),
+        supervisors,
+        includeActive,
+      });
+      return clone(attachMeterReadings(rows, demoMeterReadings));
     },
 
     // ---- Module 2: Dispensing Machines & Nozzles ----

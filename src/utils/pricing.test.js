@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { calculateSaleAmount, projectShiftClosing } from './inventoryCalculations.js';
-import { pctChange, formatPct, buildChart, niceCeil, formatCompact } from './salesMetrics.js';
+import { pctChange, formatPct, buildChart, niceCeil, formatCompact, buildPeriodSeries, buildPointDetails, buildCustomSeries, buildCustomKpis } from './salesMetrics.js';
 import {
   karachiToInstant, getNextKarachiMidnight, msUntilNextKarachiMidnight, getKarachiTodayISO,
   getKarachiWeekStartISO, getKarachiMonthStartISO, addDaysISO, formatKarachiDateTime, getKarachiShift,
@@ -106,4 +106,67 @@ test('12-hour shift system follows the Karachi clock (Day 7 AM-7 PM, Night 7 PM-
   assert.equal(at('2026-10-03T08:00:00Z').name, 'Shift 1 - Day');
   assert.equal(at('2026-10-03T08:00:00Z').hours, '7:00 AM - 7:00 PM');
   assert.equal(at('2026-10-03T16:00:00Z').hours, '7:00 PM - 7:00 AM');
+});
+
+// ---- Sales overview graph: what a click on a dot shows (fuel sale + net profit) ----
+const dotSales = {
+  businessDate: '2026-10-11',
+  series: Array.from({ length: 30 }, (_, i) => ({ date: addDaysISO('2026-09-12', i), revenue: 1000 * (i + 1), litres: 10 * (i + 1) })),
+};
+const dotIncome = [{ date: '2026-10-11', amount: 300 }, { date: '2026-10-10', amount: 50 }, { date: '2026-09-01', amount: 9999 }];
+const dotExpenses = [{ date: '2026-10-11', amount: 700 }, { date: '2026-10-05', amount: 120 }];
+
+test('daily dots: fuel sale and net profit of that day only (net = fuel + other income - expenses)', () => {
+  const { rows } = buildPeriodSeries(dotSales, 'daily');
+  const d = buildPointDetails(rows, dotIncome, dotExpenses);
+  assert.equal(d.length, 7);
+  const today = d[d.length - 1];
+  assert.equal(today.date, '2026-10-11');
+  assert.equal(today.fuelSale, 30000);
+  assert.equal(today.netProfit, 30000 + 300 - 700);
+  assert.equal(d[d.length - 2].netProfit, 29000 + 50);          // 10 Oct: income only
+  assert.equal(d.find(x => x.date === '2026-10-05').netProfit, 24000 - 120); // 5 Oct: expense only
+});
+
+test('weekly dots cover Mon-Sun windows; monthly dots are running totals over the 30 days', () => {
+  const weeks = buildPointDetails(buildPeriodSeries(dotSales, 'weekly').rows, dotIncome, dotExpenses);
+  assert.equal(weeks.length, 4);
+  const cur = weeks[3];
+  assert.equal(cur.from, '2026-10-05');
+  assert.equal(cur.to, '2026-10-11');
+  assert.equal(cur.netProfit, cur.fuelSale + 300 + 50 - 700 - 120);
+
+  const month = buildPointDetails(buildPeriodSeries(dotSales, 'monthly').rows, dotIncome, dotExpenses);
+  assert.equal(month.length, 30);
+  assert.equal(month[0].fuelSale, 1000);
+  assert.equal(month[29].fuelSale, dotSales.series.reduce((a, r) => a + r.revenue, 0));
+  // the 1 Sep income (9,999) is before the 12 Sep window start, so it must not be counted
+  assert.equal(month[29].netProfit, month[29].fuelSale + 300 + 50 - 700 - 120);
+});
+
+test('custom range: one point per day inside the chosen dates, clamped to the days that exist', () => {
+  const c = buildCustomSeries(dotSales, { start: '2026-10-03', end: '2026-10-06' });
+  assert.deepEqual(c.rows.map(r => r.date), ['2026-10-03', '2026-10-04', '2026-10-05', '2026-10-06']);
+  assert.equal(c.rows[0].from, c.rows[0].to);
+  const d = buildPointDetails(c.rows, dotIncome, dotExpenses);
+  assert.equal(d[2].netProfit, 24000 - 120);                       // 5 Oct
+  assert.equal(buildCustomSeries(dotSales, { start: '2026-01-01', end: '2026-10-11' }).rows.length, 30); // nothing invented before the data
+  assert.equal(buildCustomSeries(dotSales, { start: '2026-10-09', end: '2026-10-05' }).rows.length, 5);  // reversed dates are swapped
+  assert.equal(buildCustomSeries(dotSales, { start: '', end: '' }).rows.length, 0);
+  assert.equal(buildCustomSeries(dotSales, { start: '2027-01-01', end: '2027-01-05' }).rows.length, 0);
+});
+
+test('buildCustomKpis: KPI cards follow the custom range and use the Net Profit KPI formula', () => {
+  const series = [];
+  for (let i = 0; i < 31; i++) {
+    series.push({ date: new Date(Date.UTC(2026, 8, 11 + i)).toISOString().slice(0, 10), revenue: 1000 * (i + 1), litres: 10 * (i + 1) });
+  }
+  const k = buildCustomKpis({ series }, [{ date: '2026-10-08', amount: 500 }], [{ date: '2026-10-09', amount: 300 }], { start: '2026-10-07', end: '2026-10-11' });
+  assert.equal(k.days, 5);
+  assert.equal(k.fuelSales, 145000); // 7-11 Oct = days 27..31 of the series (27k+28k+29k+30k+31k)
+  assert.equal(k.netProfit, k.fuelSales + 500 - 300);
+  assert.equal(k.compareLabel, 'vs previous 5 days');
+  // previous window outside the 31-day series -> no invented comparison
+  assert.equal(buildCustomKpis({ series }, [], [], { start: '2026-09-12', end: '2026-10-11' }).change.fuelSales, null);
+  assert.equal(buildCustomKpis({ series }, [], [], {}), null);
 });

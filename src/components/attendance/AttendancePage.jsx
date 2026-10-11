@@ -1724,8 +1724,11 @@ import AttendanceAuditTrailModal from './AttendanceAuditTrailModal';
 import SalaryConfigAndCalculatorModal from '../payroll/SalaryConfigAndCalculatorModal';
 import PayslipModal from '../payroll/PayslipModal';
 import { payrollApi } from '../../services/payrollService';
+import { useViewerScope } from '../../hooks/useViewerScope';
+import { filterByShiftScope } from '../../utils/rbac';
 
 export default function AttendancePage({ notify, onNavigate }) {
+  const viewerScope = useViewerScope();
   const { t } = useLanguage();
   const { api } = useTanks();
 
@@ -1769,6 +1772,8 @@ export default function AttendancePage({ notify, onNavigate }) {
 
   // 1. Fetch Staff Roster & Attendance
   const loadData = useCallback(async () => {
+    // Shift managers only ever see their own shift: wait until we know which one (fail closed).
+    if (!viewerScope.ready) return;
     setLoading(true);
     try {
       let roster = [];
@@ -1787,16 +1792,21 @@ export default function AttendancePage({ notify, onNavigate }) {
           monthlySalary: Number(String(r[4]).replace(/[^0-9]/g, '')) || 35000,
         }));
       }
+      // RBAC: owner / admin keep everything; a manager keeps only employees of their own shift,
+      // and only the attendance / audit rows that belong to those employees.
+      roster = filterByShiftScope(viewerScope, roster);
+      const allowedIds = new Set(roster.map((r) => String(r.id)));
+      const inScope = (id) => !viewerScope.scoped || allowedIds.has(String(id));
       setStaffList(roster);
 
       if (api?.getAttendance) {
         const records = await api.getAttendance();
-        setAttendanceRecords(records || []);
+        setAttendanceRecords((records || []).filter((r) => inScope(r.employeeId)));
       }
 
       if (api?.getAttendanceAuditLog) {
         const logs = await api.getAttendanceAuditLog();
-        setAuditLogs(logs || []);
+        setAuditLogs((logs || []).filter((l) => inScope(l.employeeId)));
       }
     } catch (err) {
       console.warn('Error loading attendance data:', err);
@@ -1804,7 +1814,7 @@ export default function AttendancePage({ notify, onNavigate }) {
     } finally {
       setLoading(false);
     }
-  }, [api, notify]);
+  }, [api, notify, viewerScope]);
 
   useEffect(() => {
     loadData();

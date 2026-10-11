@@ -4,6 +4,8 @@
 import { inventoryError, toInventoryError } from './inventoryErrors';
 import { recoveryLink } from '../lib/supabaseClient';
 import { AttendanceError, buildAttendanceRow } from '../utils/attendancePayload';
+import { attachMeterReadings, buildShiftLedger, rangeToInstants, shiftSlotFromName, RECON_COL } from '../utils/shiftReconciliation';
+import { getKarachiTodayISO } from '../dateUtils';
 
 const toSession = s => {
   const meta = s.user.user_metadata || {};
@@ -152,6 +154,85 @@ export function createSupabaseInventory(supabase) {
     }
     if (result.error) throw toInventoryError(result.error, context);
     return result.data;
+  }
+
+
+  // Opening / closing meter of every nozzle for the given shifts (meter_readings is readable by signed-in staff).
+  async function loadMeterReadings(shiftIds) {
+    const out = [];
+    for (let i = 0; i < shiftIds.length; i += 80) {
+      const { data, error } = await supabase
+        .from('meter_readings')
+        .select('shift_closing_id, nozzle_id, previous_reading, current_reading')
+        .in('shift_closing_id', shiftIds.slice(i, i + 80));
+      if (error) { console.warn('[shift_ledger] meter readings could not be read:', error.message); break; }
+      out.push(...(data || []));
+    }
+    return out;
+  }
+
+  // Fallback for get_shift_ledger_data(): shift_closings / tanks / employees are readable, and the stock
+  // ledger comes through the existing list_tank_transactions function.
+  async function loadLedgerWithoutMigration({ startDate, endDate, withStock = true }) {
+    const { from, to } = rangeToInstants({ start: startDate, end: endDate });
+    const { data: shiftData, error: shiftError } = await supabase
+      .from('shift_closings')
+      .select('id, shift_number, business_date, status, opened_at, closed_at, opening_cash, closing_cash, closed_by, opened_by')
+      .order('opened_at', { ascending: false })
+      .limit(withStock ? 400 : 150);
+    if (shiftError) throw toInventoryError(shiftError, 'load');
+    const shifts = (shiftData || []).filter(x => x.status === 'open'
+      || ((!from || Date.parse(x.closed_at) >= from.getTime()) && (!to || Date.parse(x.opened_at) < to.getTime())));
+
+    // Names, tank totals and supervisors are independent: fetch them at the same time.
+    const ids = [...new Set(shifts.flatMap(x => [x.closed_by, x.opened_by]).filter(Boolean))];
+    const [profRes, tankRes, empRes] = await Promise.all([
+      ids.length ? supabase.from('profiles').select('id, full_name').in('id', ids) : Promise.resolve({ data: [] }),
+      withStock ? supabase.from('tanks').select('id, current_stock_litres').eq('active', true) : Promise.resolve({ data: [] }),
+      supabase.from('employees').select('full_name, designation, active, shifts(name)').eq('active', true),
+    ]);
+    const names = {};
+    (profRes.data || []).forEach(x => { names[x.id] = x.full_name; });
+    shifts.forEach(x => { x.closedByName = names[x.closed_by] || null; x.openedByName = names[x.opened_by] || null; });
+    const tankRows = tankRes.data || [];
+    const liveTotal = tankRows.reduce((sum, t) => sum + (Number(t.current_stock_litres) || 0), 0);
+
+    // Stock movements are only needed for the stock summary line of each card. If they cannot be read the
+    // shifts and their meter readings are still shown (the card hides the stock line instead of showing wrong numbers).
+    const transactions = [];
+    let stockOk = true;
+    if (withStock && shifts.length) {
+      try {
+        const earliest = Math.min(...shifts.map(x => Date.parse(x.opened_at)));
+        const dateFrom = getKarachiTodayISO(new Date(earliest));
+        for (const tank of tankRows || []) {
+          for (let offset = 0; offset < 2000; offset += 200) {
+            const page = await rpc('list_tank_transactions', {
+              p_tank_id: tank.id, p_date_from: dateFrom, p_date_to: null, p_type: null, p_nozzle_id: null,
+              p_shift_number: null, p_limit: 200, p_offset: offset,
+            }, 'general');
+            const rows = page?.rows || [];
+            rows.forEach(r => transactions.push({
+              transaction_type: r.type, quantity_litres: Number(r.quantity), created_at: r.created_at, shift_closing_id: null,
+              nozzle_number: r.nozzle_number,
+            }));
+            if (rows.length < 200) break;
+          }
+        }
+      } catch (err) {
+        console.warn('[shift_ledger] stock movements could not be read:', err?.message || err);
+        stockOk = false;
+      }
+    }
+
+    // Assigned person = the Shift Supervisor of each shift (RLS may hide the other shift from a manager).
+    const supervisors = {};
+    const emps = empRes.data;
+    (emps || []).filter(e => /supervisor/i.test(e.designation || '')).forEach(e => {
+      const slot = shiftSlotFromName(e.shifts?.name);
+      if (slot && !supervisors[slot]) supervisors[slot] = e.full_name;
+    });
+    return { shifts, transactions, live_total: liveTotal, supervisors, managers: {}, stock_ok: withStock ? stockOk : false };
   }
 
   return {
@@ -789,100 +870,74 @@ export function createSupabaseInventory(supabase) {
       };
     },
 
-    async getShiftReconciliation() {
+    // Which shift is the signed-in user limited to? { role, shiftId, shiftName } | null.
+    // Owner / admin are never limited (the screens check the role); a manager without an assigned
+    // shift gets shiftId null, which the screens treat as "see nothing" (fail closed).
+    async getViewerScope() {
       try {
-        const { data, error } = await supabase
-          .from('shift_closings')
-          .select(`
-            id, shift_number, business_date, status, opened_at, closed_at,
-            opening_cash, closing_cash, closed_by,
-            closed_by_user:profiles!shift_closings_closed_by_fkey(full_name),
-            meter_readings(sold_litres, sale_amount),
-            fuel_transactions(quantity_litres, transaction_type, stock_before, stock_after)
-          `)
-          .order('shift_number', { ascending: false })
-          .limit(10);
-        if (error) {
-          console.warn('[shift_reconciliation] query failed:', error.message);
-          return null;
+        const { data, error } = await supabase.rpc('viewer_scope');
+        if (!error && data && data.shift_id) {
+          return { role: data.role || null, shiftId: data.shift_id, shiftName: data.shift_name || null };
         }
-        if (!data || data.length === 0) return null;
-
-        // Query current live tanks stock to establish deterministic carry-forward anchor
-        let liveTankStock = 60988;
-        try {
-          const { data: tankData } = await supabase.from('tanks').select('current_stock_litres').eq('active', true);
-          if (tankData && tankData.length > 0) {
-            const sum = tankData.reduce((acc, t) => acc + (Number(t.current_stock_litres) || 0), 0);
-            if (sum > 0) liveTankStock = sum;
-          }
-        } catch { }
-
-        // 1. Map raw shifts to structured records with dynamic staff & standard 12-hour hours
-        const shiftList = data.map((sc, idx) => {
-          const shiftNum = (Number(sc.shift_number || (data.length - idx)) % 2 === 0) ? 2 : 1;
-          const shiftName = shiftNum === 1 ? 'Shift 1 - Day' : 'Shift 2 - Night';
-          const defaultHours = shiftNum === 1 ? '07:00 - 19:00' : '19:00 - 07:00';
-          const assignedStaff = shiftNum === 1 ? 'Fahad Iqbal' : 'Hamza Raza';
-          const rawPerson = sc.closed_by_user?.full_name;
-          const person = (rawPerson && rawPerson !== 'Test User' && rawPerson !== 'Station staff')
-            ? rawPerson
-            : assignedStaff;
-
-          const txs = sc.fuel_transactions || [];
-          const salesLitres = txs.filter(t => t.transaction_type === 'NOZZLE_SALE').reduce((sum, t) => sum + Math.abs(Number(t.quantity_litres) || 0), 0)
-            || (sc.meter_readings || []).reduce((sum, m) => sum + (Number(m.sold_litres) || 0), 0);
-          const purchasesLitres = txs.filter(t => t.transaction_type === 'FUEL_RECEIVED').reduce((sum, t) => sum + (Number(t.quantity_litres) || 0), 0);
-
-          return {
-            shiftNum,
-            shiftName,
-            person,
-            hours: defaultHours,
-            salesLitres,
-            purchasesLitres,
-            status: sc.status === 'closed' ? 'Completed' : 'Open',
-            openingStock: 0,
-            totalStock: 0,
-            closingStock: 0,
-            closedBy: sc.closed_by,
-            openingCash: sc.opening_cash,
-            closingCash: sc.closing_cash,
-          };
-        });
-
-        // 2. Strict Continuous Carry-Forward Math:
-        // Total Stock = Opening Stock + Purchases
-        // Closing Stock = Total Stock - 12-hour Sales
-        // Shift 1 Closing -> Shift 2 Opening -> Next Shift 1 Opening
-        let runningStock = liveTankStock;
-        for (let i = 0; i < shiftList.length; i++) {
-          const s = shiftList[i];
-          s.closingStock = runningStock;
-          s.totalStock = s.closingStock + s.salesLitres;
-          s.openingStock = Math.max(s.totalStock - s.purchasesLitres, 0);
-          // Carrying forward backwards in time: current shift's opening stock was previous shift's closing stock
-          runningStock = s.openingStock;
+        // Works without any SQL migration: read the profile, then find the shift.
+        const { data: sess } = await supabase.auth.getSession();
+        const user = sess?.session?.user;
+        if (!user) return null;
+        const { data: prof } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
+        const role = data?.role || prof?.role || null;
+        const { data: shiftRows } = await supabase.from('shifts').select('id, name');
+        const shifts = shiftRows || [];
+        let shift = prof?.shift_id ? shifts.find(x => x.id === prof.shift_id) : null;
+        if (!shift && role === 'manager') {
+          // Same convention as migration_employee_shift_scope.sql: user1 = Day manager, user2 = Night manager.
+          const hint = `${String(user.email || '').split('@')[0]} ${prof?.full_name || ''}`.toLowerCase();
+          const slot = /user\s*1|morning|day/.test(hint) ? 1 : /user\s*2|night|evening/.test(hint) ? 2 : null;
+          if (slot) shift = shifts.find(x => shiftSlotFromName(x.name) === slot) || null;
         }
-
-        return shiftList.map(s => [
-          s.shiftName,
-          s.person,
-          s.hours,
-          s.openingStock,
-          s.purchasesLitres,
-          s.totalStock,
-          s.salesLitres,
-          s.closingStock,
-          s.status,
-          s.closedBy,
-          s.openingCash,
-          s.closingCash,
-        ]);
+        return { role, shiftId: shift?.id || null, shiftName: shift?.name || null };
       } catch (err) {
-        console.warn('[shift_reconciliation] error:', err);
+        console.warn('[viewer_scope] error:', err);
         return null;
       }
+    },
+
+    // 12-hour stock reconciliation ledger, newest first: the running shift ("Pending") on top,
+    // then the most recently closed shift, then older ones. Everything is derived from the
+    // append-only fuel ledger by buildShiftLedger() (see utils/shiftReconciliation.js):
+    //   Total stock = Opening stock + Purchases;  Closing stock = Total stock - sales.
+    // fuel_transactions is not readable from the browser (RLS, no select policy), so the raw
+    // ledger comes from the get_shift_ledger_data() function (migration_shift_ledger.sql).
+    // Rows keep the historical array layout (see RECON_COL) with a metadata object appended.
+    async getShiftReconciliation({ startDate, endDate, includeActive = true, withStock = true } = {}) {
+      // Without the stock summary only shifts + meter readings are needed: skip the heavy stock-ledger queries.
+      const light = withStock === false;
+      const { data, error } = light
+        ? { data: null, error: { code: 'PGRST202' } }
+        : await supabase.rpc('get_shift_ledger_data', { p_start: startDate || null, p_end: endDate || null });
+      let raw = data || {};
+      if (error) {
+        // Function not installed yet: build the same data from tables / functions every database already has,
+        // so the page works without running any SQL.
+        if (!['PGRST202', '42883'].includes(error.code)) {
+          console.warn('[shift_ledger] query failed:', error.message);
+          throw toInventoryError(error, 'load');
+        }
+        raw = await loadLedgerWithoutMigration({ startDate, endDate, withStock: !light });
+      }
+      const supervisors = {};
+      for (const slot of [1, 2]) {
+        supervisors[slot] = raw.supervisors?.[slot] || raw.managers?.[slot] || null;
+      }
+      const rows = buildShiftLedger({
+        shifts: raw.shifts || [],
+        transactions: raw.transactions || [],
+        liveTotal: Number(raw.live_total) || 0,
+        supervisors,
+        includeActive,
+      });
+      if (raw.stock_ok === false) rows.forEach(r => { r[RECON_COL.META].stockOk = false; });
+      const closedIds = rows.filter(r => !r[RECON_COL.META].active).map(r => r[RECON_COL.META].id);
+      return attachMeterReadings(rows, await loadMeterReadings(closedIds));
     },
 
     // ---- Module 2: Dynamic Dispensing Machines & Nozzles ----

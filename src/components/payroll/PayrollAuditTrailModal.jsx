@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { scopeByPayrollRows } from '../../utils/payrollScope';
 import {
   X,
   ShieldCheck,
@@ -52,7 +53,7 @@ const ACTION_CONFIG = {
   },
 };
 
-export default function PayrollAuditTrailModal({ onClose }) {
+export default function PayrollAuditTrailModal({ onClose, scopeRows = null, scope = null }) {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -63,7 +64,7 @@ export default function PayrollAuditTrailModal({ onClose }) {
     (async () => {
       try {
         const data = await payrollApi.getAuditSummary(100);
-        if (mounted) setLogs(data || []);
+        if (mounted) setLogs(scope && scope.scoped ? scopeByPayrollRows(scope, data, scopeRows || []) : (data || []));
       } catch (err) {
         console.warn('Failed to load audit logs:', err);
       } finally {

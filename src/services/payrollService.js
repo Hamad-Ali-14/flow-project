@@ -52,7 +52,7 @@ export function toPayrollError(error) {
 
 const mapRow = r => ({
   id: r.id, employeeId: r.employee_id || r.employeeId, employeeName: r.employee_name || r.employeeName,
-  designation: r.designation, shiftName: r.shift_name || r.shiftName,
+  designation: r.designation, shiftId: r.shift_id || r.shiftId || null, shiftName: r.shift_name || r.shiftName,
   month: n(r.month), year: n(r.year),
   monthlySalary: money(r.monthly_salary ?? r.monthlySalary), dailySalary: money(r.daily_salary ?? r.dailySalary), daysBasis: n(r.days_basis ?? r.daysBasis) || 30,
   presentDays: n(r.present_days ?? r.presentDays) || 0, absentDays: n(r.absent_days ?? r.absentDays) || 0, leaveDays: n(r.leave_days ?? r.leaveDays) || 0,
@@ -83,13 +83,13 @@ const mapDetail = d => ({
 
 // Seed demo employees for standalone / offline operations
 const DEMO_STAFF = [
-  { id: 'emp-1', name: 'Zahid Khan', designation: 'Senior Pump Attendant', shiftName: 'Shift 1 - Day', monthlySalary: 35000 },
-  { id: 'emp-2', name: 'Muhammad Tariq', designation: 'Pump Attendant', shiftName: 'Shift 2 - Night', monthlySalary: 30000 },
-  { id: 'emp-3', name: 'Bilal Ahmed', designation: 'Pump Attendant', shiftName: 'Shift 1 - Day', monthlySalary: 30000 },
-  { id: 'emp-4', name: 'Usman Ali', designation: 'Station Supervisor', shiftName: 'General Shift', monthlySalary: 45000 },
-  { id: 'emp-5', name: 'Rashid Mehmood', designation: 'Pump Attendant', shiftName: 'Shift 1 - Day', monthlySalary: 30000 },
-  { id: 'emp-6', name: 'Hamza Farooq', designation: 'Maintenance Tech', shiftName: 'General Shift', monthlySalary: 40000 },
-  { id: 'emp-7', name: 'Shahid Iqbal', designation: 'Security Guard', shiftName: 'Shift 2 - Night', monthlySalary: 28000 },
+  { id: 'demo-emp-1', name: 'Bilal Ahmed', designation: 'Shift Supervisor', shiftId: 'shift-day', shiftName: 'Shift 1 - Day', monthlySalary: 55000 },
+  { id: 'demo-emp-2', name: 'Fahad Iqbal', designation: 'Pump attendant', shiftId: 'shift-night', shiftName: 'Shift 2 - Night', monthlySalary: 40000 },
+  { id: 'demo-emp-3', name: 'Hamza Raza', designation: 'Senior Cashier', shiftId: 'shift-day', shiftName: 'Shift 1 - Day', monthlySalary: 42000 },
+  { id: 'demo-emp-4', name: 'Imran Shah', designation: 'Pump attendant', shiftId: 'shift-day', shiftName: 'Shift 1 - Day', monthlySalary: 38000 },
+  { id: 'demo-emp-5', name: 'Noman Tariq', designation: 'Pump attendant', shiftId: 'shift-night', shiftName: 'Shift 2 - Night', monthlySalary: 37000 },
+  { id: 'demo-emp-6', name: 'Rizwan Ahmed', designation: 'Station Cleaner', shiftId: 'shift-day', shiftName: 'Shift 1 - Day', monthlySalary: 30000 },
+  { id: 'demo-emp-7', name: 'Usman Ali', designation: 'Shift Supervisor', shiftId: 'shift-night', shiftName: 'Shift 2 - Night', monthlySalary: 55000 },
 ];
 
 export function createDemoPayrollApi() {
@@ -124,6 +124,7 @@ export function createDemoPayrollApi() {
       employeeId: emp.id,
       employeeName: emp.name,
       designation: emp.designation,
+      shiftId: emp.shiftId,
       shiftName: emp.shiftName,
       month: defaultMonth,
       year: defaultYear,
@@ -202,7 +203,7 @@ export function createDemoPayrollApi() {
       const totalPaid = rows.reduce((s, r) => s + r.paidTotal, 0);
 
       const existingEmpIds = new Set(rows.map(r => r.employeeId));
-      const missingEmployees = DEMO_STAFF.filter(e => !existingEmpIds.has(e.id)).map(e => ({ id: e.id, name: e.name }));
+      const missingEmployees = DEMO_STAFF.filter(e => !existingEmpIds.has(e.id)).map(e => ({ id: e.id, name: e.name, shiftId: e.shiftId }));
 
       return {
         month,
@@ -251,6 +252,7 @@ export function createDemoPayrollApi() {
           employeeId: emp.id,
           employeeName: emp.name,
           designation: emp.designation,
+          shiftId: emp.shiftId,
           shiftName: emp.shiftName,
           month,
           year,

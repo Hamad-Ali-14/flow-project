@@ -199,7 +199,7 @@ export function buildPeriodSeries(sales, period = 'daily') {
           litres += Number(r.litres) || 0;
         }
       });
-      rows.push({ date: from, revenue, litres });
+      rows.push({ date: from, from, to, revenue, litres });
     }
     return { rows, label: 'Last 4 weeks, weekly totals' };
   }
@@ -208,12 +208,116 @@ export function buildPeriodSeries(sales, period = 'daily') {
     // Running total over the 30 days: the last point equals the "Monthly" KPI (revenue and litres).
     let revenue = 0;
     let litres = 0;
-    const rows = series.slice(-30).map(r => {
+    const window30 = series.slice(-30);
+    const rows = window30.map(r => {
       revenue += Number(r.revenue) || 0;
       litres += Number(r.litres) || 0;
-      return { date: r.date, revenue, litres };
+      return { date: r.date, from: window30[0].date, to: r.date, revenue, litres };
     });
     return { rows, label: 'Last 30 days, running total' };
   }
-  return { rows: series.slice(-7), label: 'Last 7 days, per day' };
+  return { rows: series.slice(-7).map(r => ({ ...r, from: r.date, to: r.date })), label: 'Last 7 days, per day' };
+}
+
+/**
+ * Custom date range for the Sales overview graph: one point per day between `start` and `end` (inclusive),
+ * taken from the per-day series the database sends (it covers the last 31 days). Days outside that series
+ * are never invented, so the range is clamped to the days that really exist.
+ */
+export function buildCustomSeries(sales, { start, end } = {}) {
+  const series = (sales && sales.series) || [];
+  if (!series.length || !start || !end) return { rows: [], label: '' };
+  const from = start <= end ? start : end;
+  const to = start <= end ? end : start;
+  const rows = series
+    .filter(r => r.date >= from && r.date <= to)
+    .map(r => ({ ...r, from: r.date, to: r.date }));
+  if (!rows.length) return { rows: [], label: '' };
+  const first = rows[0].date;
+  const last = rows[rows.length - 1].date;
+  return { rows, label: first === last ? `${first}, single day` : `${first} to ${last}, per day` };
+}
+
+
+/**
+ * KPI card values for a custom date range (the same five cards as the Overview top row):
+ *   fuel sales / fuel volume  = sum of the per-day `sales.series` rows inside the range
+ *   other income / expenses   = sum of the records dated inside the range
+ *   net profit                = fuel sales + other income - expenses   (margin = net / (fuel + other income))
+ * Each card is compared with the equally long window right before the range. `sales.series` only covers the
+ * last ~31 days, so when that previous window is not fully inside it the fuel/net comparison is null
+ * ("no previous data") instead of an invented number. Other income / expenses have full history.
+ */
+export function buildCustomKpis(sales, income = [], expenses = [], { start, end } = {}) {
+  if (!start || !end) return null;
+  const from = start <= end ? start : end;
+  const to = start <= end ? end : start;
+  const series = (sales && sales.series) || [];
+  const days = Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1;
+  const prevTo = isoAdd(from, -1);
+  const prevFrom = isoAdd(prevTo, -(days - 1));
+
+  const sumList = (list, a, b) => (list || []).reduce((sum, item) => {
+    const d = String(item?.date || '').slice(0, 10);
+    return d >= a && d <= b ? sum + (Number(item.amount) || 0) : sum;
+  }, 0);
+  const sumSeries = (a, b, key) => series.reduce((sum, r) => (r.date >= a && r.date <= b ? sum + (Number(r[key]) || 0) : sum), 0);
+
+  const fuelSales = sumSeries(from, to, 'revenue');
+  const litres = sumSeries(from, to, 'litres');
+  const otherIncome = sumList(income, from, to);
+  const expenseTotal = sumList(expenses, from, to);
+  const netProfit = fuelSales + otherIncome - expenseTotal;
+  const revenueBase = fuelSales + otherIncome;
+  const margin = revenueBase > 0 ? Math.round((netProfit / revenueBase) * 1000) / 10 : null;
+
+  // Is the previous window fully covered by the daily fuel series?
+  const prevCovered = series.length > 0 && prevFrom >= series[0].date;
+  const prevFuel = prevCovered ? sumSeries(prevFrom, prevTo, 'revenue') : null;
+  const prevLitres = prevCovered ? sumSeries(prevFrom, prevTo, 'litres') : null;
+  const prevOther = sumList(income, prevFrom, prevTo);
+  const prevExpenses = sumList(expenses, prevFrom, prevTo);
+  const prevNet = prevCovered ? prevFuel + prevOther - prevExpenses : null;
+
+  return {
+    from, to, days,
+    fuelSales, litres, otherIncome, expenses: expenseTotal, netProfit, margin,
+    change: {
+      fuelSales: prevFuel === null ? null : pctChange(fuelSales, prevFuel),
+      litres: prevLitres === null ? null : pctChange(litres, prevLitres),
+      otherIncome: pctChange(otherIncome, prevOther),
+      expenses: pctChange(expenseTotal, prevExpenses),
+      netProfit: prevNet === null ? null : pctChange(netProfit, prevNet),
+    },
+    compareLabel: `vs previous ${days} ${days === 1 ? 'day' : 'days'}`,
+  };
+}
+
+/**
+ * What a click on a chart dot shows. For every row of buildPeriodSeries() (each carries its own date window
+ * `from`..`to`) this adds up, over that same window:
+ *   fuel sale  = the point's revenue (exactly what the dot is plotted at)
+ *   net profit = fuel sale + other income - expenses      (the same formula as the Net Profit KPI card)
+ * so the last point of each period always equals the matching KPI card.
+ */
+export function buildPointDetails(rows = [], income = [], expenses = []) {
+  const within = (list, from, to) => (list || []).reduce((sum, item) => {
+    const d = String(item?.date || '').slice(0, 10);
+    return d >= from && d <= to ? sum + (Number(item.amount) || 0) : sum;
+  }, 0);
+  return (rows || []).map(r => {
+    const from = r.from || r.date;
+    const to = r.to || r.date;
+    const fuelSale = Number(r.revenue) || 0;
+    const otherIncome = within(income, from, to);
+    const expenseTotal = within(expenses, from, to);
+    return {
+      date: r.date, from, to,
+      fuelSale,
+      litres: Number(r.litres) || 0,
+      otherIncome,
+      expenses: expenseTotal,
+      netProfit: fuelSale + otherIncome - expenseTotal,
+    };
+  });
 }

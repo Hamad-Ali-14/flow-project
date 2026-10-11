@@ -18,7 +18,7 @@ export function createUnconfiguredInventory() {
     recordDip: refuse, adjustStock: refuse, getFuelPrices: refuse, setFuelPrice: refuse,
     cancelScheduledPrice: refuse, applyDuePrices: refuse, getSalesSummary: refuse, listTransactions: refuse, listDips: refuse,
     getExpenses: refuse, saveExpense: refuse, getOtherIncome: refuse, saveOtherIncome: refuse,
-    getEmployees: refuse, saveEmployee: refuse, getShiftReconciliation: refuse,
+    getEmployees: refuse, saveEmployee: refuse, getShiftReconciliation: refuse, getViewerScope: refuse,
     getStaffRoster: refuse, getAttendance: refuse, markAttendance: refuse, bulkMarkAttendance: refuse,
     getAttendanceAuditLog: refuse, correctAttendanceRecord: refuse,
   };
