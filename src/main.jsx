@@ -496,9 +496,21 @@ function Overview({ setModal, income = [], expenses = [], today, notify }) {
   const [period, setPeriod] = useState("daily");
   // Dates picked in the Sales overview "Custom" option ({ start, end }), or null for daily / weekly / monthly.
   const [customRange, setCustomRange] = useState(null);
+  // "Weekly" KPIs = rolling last 7 days (today and the 6 days before), not the calendar week: on a Monday
+  // the calendar week only has today in it, so every card would show 0. This is the same as picking
+  // the last 7 days in Custom, and (like Monthly = last 30 days) it matches what the owner expects.
+  const kpiRange = useMemo(() => {
+    if (customRange) return customRange;
+    if (period !== "weekly") return null;
+    const end = sales?.businessDate || today;
+    if (!end) return null;
+    const d = new Date(`${end}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - 6);
+    return { start: d.toISOString().slice(0, 10), end };
+  }, [customRange, period, sales?.businessDate, today]);
   const customKpis = useMemo(
-    () => (canSeeSales && customRange ? buildCustomKpis(sales, income, expenses, customRange) : null),
-    [canSeeSales, customRange, sales, income, expenses],
+    () => (canSeeSales && kpiRange ? buildCustomKpis(sales, income, expenses, kpiRange) : null),
+    [canSeeSales, kpiRange, sales, income, expenses],
   );
   const [now, setNow] = useState(() => new Date());
   const [deliveryOrderTank, setDeliveryOrderTank] = useState(null);
